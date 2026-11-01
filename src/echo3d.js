@@ -165,14 +165,19 @@ function makeSpider() {
     const e = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.17, 0.08), eyeMat); e.position.set(ex, bodyY + ey, -1.4); g.add(e);
   }
   g.legGroups = [];
-  const az4 = [-1.0, -0.3, 0.5, 1.3];
+  const az4 = [-1.1, -0.35, 0.45, 1.3];
   for (let i = 0; i < 4; i++) for (const side of [-1, 1]) {
     const pv = new THREE.Group(); g.add(pv);
-    const az = az4[i], kx = side * 2.4, ky = bodyY + 1.0, kz = az + side * 0.1, fx = side * 3.1, fz = az + side * 0.2;
-    pv.add(makeLimb(side * 0.7, bodyY + 0.2, az, kx, ky, kz, 0.26, body));
-    pv.add(makeLimb(kx, ky, kz, fx, 0.05, fz, 0.2, body));
+    // longer, taller, spindlier legs: high knee then a long reach to the floor
+    const az = az4[i];
+    const kx = side * 3.1, ky = bodyY + 1.6, kz = az + side * 0.15;   // knee, higher & wider
+    const fx = side * 4.7, fy = 0.05, fz = az + side * 0.35;           // foot, far out
+    pv.add(makeLimb(side * 0.7, bodyY + 0.2, az, kx, ky, kz, 0.24, body));
+    pv.add(makeLimb(kx, ky, kz, fx, fy, fz, 0.18, body));
     g.legGroups.push({ pivot: pv, phase: i * 0.8 + (side > 0 ? Math.PI : 0) });
   }
+  // the front pair (i = 0) stays visible even in first person, like forelegs in view
+  g.frontPivots = [g.legGroups[0].pivot, g.legGroups[1].pivot];
   scene.add(g); return g;
 }
 
@@ -251,8 +256,11 @@ addEventListener('keydown', (e) => {
   if (k === ' ') { if (!e.repeat) pounce(); }
   else if (k === 'backspace') restartLevel();
   else if (k === 'v') firstPerson = !firstPerson;
+  else if (k === 'c') { if (!e.repeat) sneakToggle = !sneakToggle; } // tap C to toggle sneak
   else key[k] = true;
 });
+let sneakToggle = false;
+function isSneaking() { return key['shift'] || sneakToggle; }
 addEventListener('keyup', (e) => { key[e.key.toLowerCase()] = false; });
 canvas.addEventListener('click', () => { if (firstPerson) canvas.requestPointerLock(); });
 addEventListener('mousemove', (e) => {
@@ -295,7 +303,7 @@ function movePlayer(dt) {
   if (key['d']) { mx += rx; mz += rz; }
   if (key['a']) { mx -= rx; mz -= rz; }
   if (mx || mz) { const L = Math.hypot(mx, mz); mx /= L; mz /= L; }
-  let sp = SPEED;
+  let sp = isSneaking() ? SPEED * 0.45 : SPEED;
   if (player.pounceT > 0) { mx += fx; mz += fz; sp = POUNCE_SPEED; }
   player.pos.x += mx * sp * dt; player.pos.z += mz * sp * dt;
   clampField(player.pos);
@@ -322,8 +330,9 @@ function updateHumans(dt) {
     h.rotation.y = heading;
     // detection
     const dx = player.pos.x - h.position.x, dz = player.pos.z - h.position.z, d = Math.hypot(dx, dz) || 1;
+    const range = isSneaking() ? VISION_RANGE * 0.5 : VISION_RANGE; // sneaking = much harder to spot
     let sees = false;
-    if (!hidden && d < VISION_RANGE) {
+    if (!hidden && d < range) {
       const fwd = new THREE.Vector3(Math.sin(heading), 0, Math.cos(heading));
       const ang = Math.acos(THREE.MathUtils.clamp((dx / d) * fwd.x + (dz / d) * fwd.z, -1, 1));
       if (ang < VISION_HALF && !losBlocked(h.position.x, h.position.z, player.pos.x, player.pos.z)) sees = true;
@@ -378,7 +387,10 @@ function render() {
   playerSpider.position.set(player.pos.x, 0, player.pos.z);
   playerSpider.rotation.y = player.yaw;
   placeSpider(playerSpider);
-  playerSpider.visible = !firstPerson; // no clipping in FP
+  // first person: hide the body but keep the two front legs in view
+  playerSpider.visible = true;
+  for (const ch of playerSpider.children) ch.visible = !firstPerson;
+  if (firstPerson) for (const pv of playerSpider.frontPivots) pv.visible = true;
   const fx = Math.sin(player.yaw), fz = -Math.cos(player.yaw);
   if (firstPerson) {
     camera.position.set(player.pos.x + fx * 0.6, 2.3, player.pos.z + fz * 0.6);
@@ -400,8 +412,8 @@ function updateHud() {
   hudEl.textContent =
     `SPIDER HUNT  ·  stealth\n` +
     `Campers left: ${HUMAN_COUNT - killed} / ${HUMAN_COUNT}` +
-    `${hidden ? '    [HIDDEN]' : ''}${seen ? '    ⚠ SPOTTED!' : ''}\n` +
-    `Click to look · WASD move · SPACE pounce · V view`;
+    `${isSneaking() ? '    [SNEAKING]' : ''}${hidden ? '    [HIDDEN]' : ''}${seen ? '    ⚠ SPOTTED!' : ''}\n` +
+    `WASD move · Shift/C sneak · SPACE pounce · V view`;
   if (hpFill) {
     const pct = Math.max(0, player.hp) / HP_MAX;
     hpFill.style.width = (pct * 100) + '%';
