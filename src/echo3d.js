@@ -1,94 +1,83 @@
 /* ============================================================
-   ECHO — Spider Hunt (3D, first person, anime toon style)
+   SPIDER HUNT — stealth camp hunt (3D, first person, dark anime)
 
-   You are a spider predator. Hunt the little people and critters
-   to grow stronger — but bigger BEASTS roam the field and will
-   hunt YOU. Eat enough prey and you grow powerful enough to turn
-   the tables and hunt the beasts too.
+   You are a spider in a big dark forest at night. Campers are
+   dotted around the map, each watching the area in front of them
+   (red vision cone). Sneak through the greenery and kill every
+   camper — but if ANY camper sees you, your HP drains fast and
+   the level restarts. Hide in bushes to break their line of sight.
 
    Controls:
      Click the screen .... lock the mouse to look around
      Mouse ............... look
-     W / A / S / D ....... crawl (relative to where you look)
+     W A S D ............. crawl (relative to where you look)
      Left / Right arrow .. turn
-     SPACE ............... pounce! (a quick lunge to catch things)
+     SPACE ............... pounce (lunge to reach & kill a camper)
      V ................... toggle first-person / see your spider
-     Backspace ........... restart the hunt
+     Backspace ........... restart the level
    ============================================================ */
 
 /* global THREE */
 
 // ---------- Tunables ----------
-const ROOM = { x: 30, z: 30 };
-const SPEED = 9;
+const ROOM = { x: 60, z: 60 };        // BIG map
+const SPEED = 11;
 const TURN = 1.8;
 const MOUSE_SENS = 0.0022;
-const POUNCE_SPEED = 20;
-const PREY_COUNT = 9;
-const BEAST_COUNT = 2;
+const POUNCE_SPEED = 24;
+const HUMAN_COUNT = 5;                // fewer entities
+const VISION_RANGE = 17;
+const VISION_HALF = (30 * Math.PI) / 180;
+const HP_MAX = 100;
+const HP_DRAIN = 70;                  // per second while seen
+const HP_REGEN = 16;                  // per second while safe
 
 // ---------- Dark anime palette ----------
 const C = {
-  sky: 0x0d0b1f,        // deep night indigo
-  fog: 0x14102a,
-  ground: 0x1a2240,     // dark moonlit grass
-  ground2: 0x141a33,
-  spider: 0x1a1720,
-  spiderEye: 0xff5a1f,  // glowing red-orange
-  trunk: 0x2a2030,
-  blossom: 0xb14dff,    // glowing violet blossoms
-  rock: 0x2e3350,
-  prey: [0x7fd8ff, 0xff8fd0, 0xffe07a, 0xb388ff, 0x8affc1], // glowy spirits
-  beast: 0xff2e4d,
-  beastEye: 0xffe14d,
-  petal: 0x9ad8ff,      // drifting glow-spores
-  moon: 0xf4f0ff,
-  outline: 0x05040a,
+  sky: 0x0b0a1a, fog: 0x100d24,
+  ground: 0x16301f, ground2: 0x11271a,
+  grass: 0x2f5a3a, bush: 0x1b3a26,
+  spider: 0x16131c, spiderEye: 0xff5a1f,
+  trunk: 0x241a2a, blossom: 0xb14dff,
+  skin: 0xc9a98a, cloth: [0x4a5a7a, 0x6a4a5a, 0x5a5a3a, 0x3a5a5a],
+  cone: 0xff3b3b, fire: 0xff7a1a,
+  petal: 0x9ad8ff, moon: 0xf4f0ff, outline: 0x05040a,
 };
 
 // ---------- Scene ----------
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(C.sky);
-scene.fog = new THREE.Fog(C.fog, 26, 78);
-
-const camera = new THREE.PerspectiveCamera(72, window.innerWidth / window.innerHeight, 0.1, 300);
+scene.fog = new THREE.Fog(C.fog, 34, 115);
+const camera = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, 0.1, 500);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 const canvas = renderer.domElement;
 document.getElementById('game').appendChild(canvas);
-window.addEventListener('resize', () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
 });
 
-// ---------- Lights (moonlit toon) ----------
-scene.add(new THREE.HemisphereLight(0x3a4a8f, 0x0a0a14, 0.55)); // cool sky / dark ground
-const moonLight = new THREE.DirectionalLight(0xbcd0ff, 0.7);
-moonLight.position.set(-14, 22, -8); scene.add(moonLight);
-scene.add(new THREE.AmbientLight(0x222a44, 0.4));
-// a magenta rim light for the anime glow
-const rim = new THREE.PointLight(0xb14dff, 0.5, 70); rim.position.set(0, 10, 0); scene.add(rim);
+// ---------- Lights ----------
+scene.add(new THREE.HemisphereLight(0x33427f, 0x070710, 0.5));
+const moonLight = new THREE.DirectionalLight(0xbcd0ff, 0.6);
+moonLight.position.set(-20, 30, -14); scene.add(moonLight);
+scene.add(new THREE.AmbientLight(0x1c2240, 0.45));
 
-// the moon + stars
 (function sky() {
-  const moon = new THREE.Mesh(new THREE.CircleGeometry(6, 32), new THREE.MeshBasicMaterial({ color: C.moon }));
-  moon.position.set(-30, 34, -55); moon.lookAt(0, 0, 0); scene.add(moon);
-  const halo = new THREE.Mesh(new THREE.CircleGeometry(9, 32), new THREE.MeshBasicMaterial({ color: 0xbfa8ff, transparent: true, opacity: 0.18 }));
-  halo.position.copy(moon.position); halo.lookAt(0, 0, 0); scene.add(halo);
-  const N = 400, g = new THREE.BufferGeometry(), p = new Float32Array(N * 3);
+  const moon = new THREE.Mesh(new THREE.CircleGeometry(10, 32), new THREE.MeshBasicMaterial({ color: C.moon }));
+  moon.position.set(-60, 60, -110); moon.lookAt(0, 0, 0); scene.add(moon);
+  const N = 500, g = new THREE.BufferGeometry(), p = new Float32Array(N * 3);
   for (let i = 0; i < N; i++) {
-    const r = 120, th = Math.random() * Math.PI * 2, ph = Math.random() * Math.PI * 0.5;
-    p[i * 3] = Math.cos(th) * Math.sin(ph) * r;
-    p[i * 3 + 1] = Math.cos(ph) * r + 10;
-    p[i * 3 + 2] = Math.sin(th) * Math.sin(ph) * r;
+    const r = 220, th = Math.random() * Math.PI * 2, ph = Math.random() * Math.PI * 0.5;
+    p[i * 3] = Math.cos(th) * Math.sin(ph) * r; p[i * 3 + 1] = Math.cos(ph) * r + 12; p[i * 3 + 2] = Math.sin(th) * Math.sin(ph) * r;
   }
   g.setAttribute('position', new THREE.BufferAttribute(p, 3));
-  scene.add(new THREE.Points(g, new THREE.PointsMaterial({ color: 0xcfe0ff, size: 0.7 })));
+  scene.add(new THREE.Points(g, new THREE.PointsMaterial({ color: 0xcfe0ff, size: 0.9 })));
 })();
 
-// ---------- Toon material helper + outline ----------
+// ---------- Helpers ----------
 function toonMat(color) { return new THREE.MeshToonMaterial({ color }); }
 function addOutline(group, s = 1.08) {
   const mat = new THREE.MeshBasicMaterial({ color: C.outline, side: THREE.BackSide });
@@ -97,72 +86,66 @@ function addOutline(group, s = 1.08) {
     if (ch.isMesh && ch.geometry) {
       const o = new THREE.Mesh(ch.geometry, mat);
       o.position.copy(ch.position); o.quaternion.copy(ch.quaternion);
-      o.scale.copy(ch.scale).multiplyScalar(s);
-      extra.push(o);
+      o.scale.copy(ch.scale).multiplyScalar(s); extra.push(o);
     }
   });
   extra.forEach((o) => group.add(o));
 }
+function dist2(ax, az, bx, bz) { const dx = ax - bx, dz = az - bz; return dx * dx + dz * dz; }
+// distance from point C to segment AB
+function segDist(ax, az, bx, bz, cx, cz) {
+  const dx = bx - ax, dz = bz - az, l2 = dx * dx + dz * dz || 1;
+  let t = ((cx - ax) * dx + (cz - az) * dz) / l2; t = Math.max(0, Math.min(1, t));
+  const px = ax + t * dx, pz = az + t * dz;
+  return Math.hypot(cx - px, cz - pz);
+}
 
-// ---------- World: ground, trees, rocks, petals ----------
+// ---------- World: ground, grass, bushes (cover) ----------
+const bushes = []; // {x, z, r}
 (function buildWorld() {
-  const ground = new THREE.Mesh(
-    new THREE.BoxGeometry(ROOM.x * 2, 1, ROOM.z * 2),
-    toonMat(C.ground)
-  );
+  const ground = new THREE.Mesh(new THREE.BoxGeometry(ROOM.x * 2, 1, ROOM.z * 2), toonMat(C.ground));
   ground.position.y = -0.5; scene.add(ground);
-
-  // checkered toon patches for a stylised field
-  for (let i = -ROOM.x; i < ROOM.x; i += 6) {
-    for (let j = -ROOM.z; j < ROOM.z; j += 6) {
-      if (((i + j) / 6) % 2 === 0) continue;
-      const patch = new THREE.Mesh(new THREE.BoxGeometry(6, 1.02, 6), toonMat(C.ground2));
-      patch.position.set(i + 3, -0.5, j + 3); scene.add(patch);
+  // a few big darker patches for variation
+  for (let k = 0; k < 14; k++) {
+    const s = 14 + Math.random() * 20;
+    const patch = new THREE.Mesh(new THREE.BoxGeometry(s, 1.02, s), toonMat(C.ground2));
+    patch.position.set((Math.random() * 2 - 1) * ROOM.x, -0.49, (Math.random() * 2 - 1) * ROOM.z);
+    scene.add(patch);
+  }
+  // grass tufts for texture
+  const grassMat = toonMat(C.grass);
+  for (let k = 0; k < 140; k++) {
+    const t = new THREE.Mesh(new THREE.ConeGeometry(0.4, 1.2, 5), grassMat);
+    t.position.set((Math.random() * 2 - 1) * ROOM.x, 0.3, (Math.random() * 2 - 1) * ROOM.z);
+    scene.add(t);
+  }
+  // walls
+  const wallMat = toonMat(0x0f1626); const wh = 6;
+  for (const [w, h, d, x, y, z] of [
+    [ROOM.x * 2, wh, 1, 0, wh / 2, -ROOM.z], [ROOM.x * 2, wh, 1, 0, wh / 2, ROOM.z],
+    [1, wh, ROOM.z * 2, -ROOM.x, wh / 2, 0], [1, wh, ROOM.z * 2, ROOM.x, wh / 2, 0]]) {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), wallMat); m.position.set(x, y, z); scene.add(m);
+  }
+  // bushes = hiding cover that blocks vision
+  const bushMat = toonMat(C.bush);
+  for (let k = 0; k < 60; k++) {
+    const g = new THREE.Group();
+    const r = 2.4 + Math.random() * 1.6;
+    for (let b = 0; b < 5; b++) {
+      const s = r * (0.6 + Math.random() * 0.5);
+      const blob = new THREE.Mesh(new THREE.IcosahedronGeometry(s, 0), bushMat);
+      blob.position.set((Math.random() * 2 - 1) * r, s * 0.7 + Math.random() * 0.6, (Math.random() * 2 - 1) * r);
+      blob.rotation.set(Math.random(), Math.random(), Math.random());
+      g.add(blob);
     }
+    const x = (Math.random() * 2 - 1) * (ROOM.x - 4), z = (Math.random() * 2 - 1) * (ROOM.z - 4);
+    if (Math.hypot(x, z - 50) < 8) continue; // keep start area clearish
+    g.position.set(x, 0, z); scene.add(g);
+    bushes.push({ x, z, r });
   }
-
-  // sakura trees
-  function tree(x, z) {
-    const t = new THREE.Group();
-    const trunk = new THREE.Mesh(new THREE.BoxGeometry(0.8, 4, 0.8), toonMat(C.trunk));
-    trunk.position.y = 2; t.add(trunk);
-    const glowMat = new THREE.MeshBasicMaterial({ color: C.blossom });
-    for (const [ox, oy, oz, s] of [[0, 4.4, 0, 2.4], [1.4, 3.8, 0.6, 1.6], [-1.2, 3.9, -0.8, 1.6], [0.4, 5.2, -1.2, 1.4]]) {
-      const b = new THREE.Mesh(new THREE.BoxGeometry(s, s, s), glowMat);
-      b.position.set(ox, oy, oz); b.rotation.set(0.3, 0.5, 0.2); t.add(b);
-    }
-    addOutline(t, 1.05);
-    t.position.set(x, 0, z); scene.add(t);
-  }
-  for (let k = 0; k < 10; k++) {
-    tree((Math.random() * 2 - 1) * (ROOM.x - 4), (Math.random() * 2 - 1) * (ROOM.z - 4));
-  }
-  // rocks
-  for (let k = 0; k < 8; k++) {
-    const r = new THREE.Group();
-    const rock = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.2, 1.4), toonMat(C.rock));
-    rock.rotation.set(0.2, Math.random() * 3, 0.1); r.add(rock);
-    addOutline(r, 1.08);
-    r.position.set((Math.random() * 2 - 1) * ROOM.x, 0.4, (Math.random() * 2 - 1) * ROOM.z);
-    scene.add(r);
-  }
-
-  // drifting sakura petals
-  const N = 260;
-  const geo = new THREE.BufferGeometry();
-  const pos = new Float32Array(N * 3);
-  for (let i = 0; i < N; i++) {
-    pos[i * 3] = (Math.random() * 2 - 1) * ROOM.x;
-    pos[i * 3 + 1] = Math.random() * 30;
-    pos[i * 3 + 2] = (Math.random() * 2 - 1) * ROOM.z;
-  }
-  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  const petals = new THREE.Points(geo, new THREE.PointsMaterial({ color: C.petal, size: 0.4, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending }));
-  scene.add(petals);
-  window.__petals = petals;
 })();
 
-// ---------- Netherite spider (the player) ----------
+// ---------- Netherite spider (player) ----------
 function makeLimb(sx, sy, sz, ex, ey, ez, thick, mat) {
   const s = new THREE.Vector3(sx, sy, sz), e = new THREE.Vector3(ex, ey, ez);
   const dir = new THREE.Vector3().subVectors(e, s);
@@ -176,252 +159,214 @@ function makeSpider() {
   const body = toonMat(C.spider);
   const eyeMat = new THREE.MeshBasicMaterial({ color: C.spiderEye });
   const bodyY = 1.6;
-  const abdomen = new THREE.Mesh(new THREE.BoxGeometry(1.7, 1.1, 2.1), body);
-  abdomen.position.set(0, bodyY + 0.15, 0.9); abdomen.rotation.x = -0.12; g.add(abdomen);
-  const head = new THREE.Mesh(new THREE.BoxGeometry(1.25, 0.9, 1.25), body);
-  head.position.set(0, bodyY, -0.75); g.add(head);
+  const abd = new THREE.Mesh(new THREE.BoxGeometry(1.7, 1.1, 2.1), body); abd.position.set(0, bodyY + 0.15, 0.9); abd.rotation.x = -0.12; g.add(abd);
+  const head = new THREE.Mesh(new THREE.BoxGeometry(1.25, 0.9, 1.25), body); head.position.set(0, bodyY, -0.75); g.add(head);
   for (const [ex, ey] of [[-0.32, 0.18], [0.32, 0.18], [-0.15, -0.05], [0.15, -0.05]]) {
-    const eye = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.17, 0.08), eyeMat);
-    eye.position.set(ex, bodyY + ey, -1.4); g.add(eye);
+    const e = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.17, 0.08), eyeMat); e.position.set(ex, bodyY + ey, -1.4); g.add(e);
   }
   g.legGroups = [];
-  const attachZ = [-1.0, -0.3, 0.5, 1.3];
+  const az4 = [-1.0, -0.3, 0.5, 1.3];
   for (let i = 0; i < 4; i++) for (const side of [-1, 1]) {
-    const pivot = new THREE.Group(); g.add(pivot);
-    const az = attachZ[i];
-    const kx = side * 2.4, ky = bodyY + 1.0, kz = az + side * 0.1;
-    const fx = side * 3.1, fz = az + side * 0.2;
-    pivot.add(makeLimb(side * 0.7, bodyY + 0.2, az, kx, ky, kz, 0.26, body));
-    pivot.add(makeLimb(kx, ky, kz, fx, 0.05, fz, 0.2, body));
-    g.legGroups.push({ pivot, phase: i * 0.8 + (side > 0 ? Math.PI : 0) });
+    const pv = new THREE.Group(); g.add(pv);
+    const az = az4[i], kx = side * 2.4, ky = bodyY + 1.0, kz = az + side * 0.1, fx = side * 3.1, fz = az + side * 0.2;
+    pv.add(makeLimb(side * 0.7, bodyY + 0.2, az, kx, ky, kz, 0.26, body));
+    pv.add(makeLimb(kx, ky, kz, fx, 0.05, fz, 0.2, body));
+    g.legGroups.push({ pivot: pv, phase: i * 0.8 + (side > 0 ? Math.PI : 0) });
   }
-  scene.add(g);
-  return g;
+  scene.add(g); return g;
 }
 
-// ---------- Prey (little people + critters) ----------
-function makePrey() {
+// ---------- Vision fan (flat on the ground) ----------
+function makeFan(R, H) {
+  const seg = 26, verts = [0, 0.08, 0], idx = [];
+  for (let i = 0; i <= seg; i++) { const a = -H + 2 * H * (i / seg); verts.push(Math.sin(a) * R, 0.08, Math.cos(a) * R); }
+  for (let i = 1; i <= seg; i++) idx.push(0, i, i + 1);
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3)); g.setIndex(idx);
+  const m = new THREE.MeshBasicMaterial({ color: C.cone, transparent: true, opacity: 0.14, side: THREE.DoubleSide, depthWrite: false });
+  return new THREE.Mesh(g, m);
+}
+
+// ---------- Camper ----------
+function makeHuman() {
   const g = new THREE.Group();
-  const col = C.prey[(Math.random() * C.prey.length) | 0];
-  const skin = toonMat(0xe8c6a0);
-  const cloth = new THREE.MeshToonMaterial({ color: col, emissive: col, emissiveIntensity: 0.6 });
-  const dark = toonMat(0x1d1f2e);
-  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.9, 0.4), cloth); torso.position.y = 1.2; g.add(torso);
-  const headM = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), skin); headM.position.y = 1.95; g.add(headM);
-  for (const sx of [-0.18, 0.18]) { const l = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.8, 0.25), dark); l.position.set(sx, 0.4, 0); g.add(l); }
-  for (const sx of [-0.45, 0.45]) { const a = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.7, 0.2), cloth); a.position.set(sx, 1.25, 0); g.add(a); }
-  const eyeMat = new THREE.MeshBasicMaterial({ color: 0x222 });
-  for (const sx of [-0.1, 0.1]) { const e = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.07, 0.05), eyeMat); e.position.set(sx, 1.98, -0.26); g.add(e); }
-  addOutline(g, 1.09);
-  g.userData = { kind: 'prey', vx: 0, vz: 0, tx: 0, tz: 0, retarget: 0, flee: 0 };
-  scene.add(g);
-  return g;
+  const col = C.cloth[(Math.random() * C.cloth.length) | 0];
+  const skin = toonMat(C.skin), cloth = toonMat(col), dark = toonMat(0x14161f);
+  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.0, 0.45), cloth); torso.position.y = 1.3; g.add(torso);
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.55, 0.55), skin); head.position.y = 2.1; g.add(head);
+  for (const sx of [-0.22, 0.22]) { const l = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.9, 0.28), dark); l.position.set(sx, 0.45, 0); g.add(l); }
+  for (const sx of [-0.52, 0.52]) { const a = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.8, 0.22), cloth); a.position.set(sx, 1.35, 0); g.add(a); }
+  // eyes (front = -z of body, but fan points +z, so face +z: put eyes on +z)
+  const eyeMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+  for (const sx of [-0.12, 0.12]) { const e = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.05), eyeMat); e.position.set(sx, 2.14, 0.29); g.add(e); }
+  addOutline(g, 1.08);
+  const fan = makeFan(VISION_RANGE, VISION_HALF); g.add(fan);
+  g.userData = { fan, base: 0, scanAmp: 0.3 + Math.random() * 0.5, scanSpd: 0.4 + Math.random() * 0.6, phase: Math.random() * 6, alive: true };
+  scene.add(g); return g;
 }
-
-// ---------- Beast (predator that hunts you) ----------
-function makeBeast() {
+function makeCampfire(x, z) {
   const g = new THREE.Group();
-  const body = new THREE.MeshToonMaterial({ color: C.beast, emissive: 0x6a0012, emissiveIntensity: 0.5 });
-  const dark = toonMat(0x4a0a16);
-  const eyeMat = new THREE.MeshBasicMaterial({ color: C.beastEye });
-  const trunk = new THREE.Mesh(new THREE.BoxGeometry(1.8, 1.6, 3.4), body); trunk.position.y = 2; g.add(trunk);
-  const head = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.4, 1.4), body); head.position.set(0, 2.3, -2.2); g.add(head);
-  // jaw + fangs
-  const jaw = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.4, 1.0), dark); jaw.position.set(0, 1.6, -2.4); g.add(jaw);
-  for (const sx of [-0.4, 0.4]) { const f = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.5, 0.16), toonMat(0xffffff)); f.position.set(sx, 1.65, -2.9); g.add(f); }
-  for (const sx of [-0.45, 0.45]) { const e = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 0.12), eyeMat); e.position.set(sx, 2.6, -2.85); g.add(e); }
-  for (const [sx, sz] of [[-0.9, 1.2], [0.9, 1.2], [-0.9, -1.0], [0.9, -1.0]]) {
-    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.5, 2.0, 0.5), dark); leg.position.set(sx, 1.0, sz); g.add(leg);
-  }
-  addOutline(g, 1.06);
-  g.userData = { kind: 'beast', power: 2.4, tx: 0, tz: 0, retarget: 0, hitCd: 0, fleeing: false };
-  scene.add(g);
-  return g;
+  for (let i = 0; i < 4; i++) { const log = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.2, 0.2), toonMat(0x3a2a20)); log.position.y = 0.1; log.rotation.y = i * 0.8; g.add(log); }
+  const flame = new THREE.Mesh(new THREE.ConeGeometry(0.4, 1.0, 6), new THREE.MeshBasicMaterial({ color: C.fire })); flame.position.y = 0.7; g.add(flame);
+  const light = new THREE.PointLight(C.fire, 1.1, 18); light.position.set(0, 1.2, 0); g.add(light);
+  g.userData = { flame, light }; g.position.set(x, 0, z); scene.add(g); return g;
 }
 
-// ---------- Spawning ----------
-const start = new THREE.Vector3(0, 0, 18);
-function randSpot(minFromPlayer) {
-  for (let t = 0; t < 30; t++) {
-    const x = (Math.random() * 2 - 1) * (ROOM.x - 3);
-    const z = (Math.random() * 2 - 1) * (ROOM.z - 3);
-    if (Math.hypot(x - player.pos.x, z - player.pos.z) > minFromPlayer) return { x, z };
+// ---------- Spawn ----------
+const start = new THREE.Vector3(0, 0, 50);
+function randSpot(minFromStart, others, minFromOthers) {
+  for (let t = 0; t < 60; t++) {
+    const x = (Math.random() * 2 - 1) * (ROOM.x - 6), z = (Math.random() * 2 - 1) * (ROOM.z - 6);
+    if (Math.hypot(x - start.x, z - start.z) < minFromStart) continue;
+    let ok = true;
+    for (const o of others) if (Math.hypot(x - o.position.x, z - o.position.z) < minFromOthers) { ok = false; break; }
+    if (ok) return { x, z };
   }
   return { x: 0, z: 0 };
 }
 
-const player = { pos: start.clone(), yaw: 0, pitch: 0, health: 100, score: 0, power: 1, pounceT: 0, pounceCd: 0 };
+const player = { pos: start.clone(), yaw: Math.PI, pitch: 0, hp: HP_MAX, pounceT: 0, pounceCd: 0 };
 const playerSpider = makeSpider();
-let prey = [], beasts = [];
-let firstPerson = true, legPhase = 0, danger = 0;
+let humans = [], fires = [], killed = 0, won = false, legPhase = 0, seen = false, hidden = false;
 
-function spawnAll() {
-  prey.forEach((p) => scene.remove(p)); beasts.forEach((b) => scene.remove(b));
-  prey = []; beasts = [];
-  for (let i = 0; i < PREY_COUNT; i++) { const p = makePrey(); const s = randSpot(8); p.position.set(s.x, 0, s.z); p.id = i * 1.7; prey.push(p); }
-  for (let i = 0; i < BEAST_COUNT; i++) { const b = makeBeast(); const s = randSpot(22); b.position.set(s.x, 0, s.z); beasts.push(b); }
+function spawnLevel() {
+  humans.forEach((h) => scene.remove(h)); fires.forEach((f) => scene.remove(f));
+  humans = []; fires = []; killed = 0; won = false;
+  for (let i = 0; i < HUMAN_COUNT; i++) {
+    const s = randSpot(20, humans, 16);
+    const h = makeHuman(); h.position.set(s.x, 0, s.z);
+    h.userData.base = Math.random() * Math.PI * 2;
+    humans.push(h);
+    const fx = s.x + Math.cos(h.userData.base + 0.4) * 2.2, fz = s.z + Math.sin(h.userData.base + 0.4) * 2.2;
+    fires.push(makeCampfire(fx, fz));
+  }
 }
-spawnAll();
+spawnLevel();
 
 // ---------- Input ----------
-const keyDown = {};
-window.addEventListener('keydown', (e) => {
+const key = {};
+addEventListener('keydown', (e) => {
   const k = e.key.toLowerCase();
   if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].includes(k)) e.preventDefault();
   if (k === ' ') { if (!e.repeat) pounce(); }
-  else if (k === 'backspace') restart();
+  else if (k === 'backspace') restartLevel();
   else if (k === 'v') firstPerson = !firstPerson;
-  else keyDown[k] = true;
+  else key[k] = true;
 });
-window.addEventListener('keyup', (e) => { keyDown[e.key.toLowerCase()] = false; });
+addEventListener('keyup', (e) => { key[e.key.toLowerCase()] = false; });
 canvas.addEventListener('click', () => { if (firstPerson) canvas.requestPointerLock(); });
-document.addEventListener('mousemove', (e) => {
+addEventListener('mousemove', (e) => {
   if (document.pointerLockElement === canvas) {
     player.yaw += e.movementX * MOUSE_SENS;
     player.pitch = Math.max(-1.1, Math.min(1.1, player.pitch - e.movementY * MOUSE_SENS));
   }
 });
-
-function pounce() { if (player.pounceCd <= 0) { player.pounceT = 0.28; player.pounceCd = 0.8; } }
-function restart() {
-  player.pos.copy(start); player.health = 100; player.score = 0; player.power = 1;
-  banner(''); spawnAll();
+let firstPerson = true;
+function pounce() { if (player.pounceCd <= 0) { player.pounceT = 0.3; player.pounceCd = 0.85; } }
+function restartLevel() { player.pos.copy(start); player.hp = HP_MAX; player.yaw = Math.PI; banner(''); spawnLevel(); }
+function softRestart() { // when seen: restart positions but keep nothing
+  player.pos.copy(start); player.hp = HP_MAX; spawnLevel();
 }
 
-// ---------- Update ----------
+// ---------- Loop ----------
 let last = performance.now();
 function tick(now) {
   const dt = Math.min((now - last) / 1000, 0.05); last = now;
   legPhase += dt * 9;
   if (player.pounceCd > 0) player.pounceCd -= dt;
   if (player.pounceT > 0) player.pounceT -= dt;
-  danger = Math.max(0, danger - dt);
-
-  movePlayer(dt);
-  player.power = 1 + player.score * 0.2;
-  updatePrey(dt);
-  updateBeasts(dt);
-  updatePetals(dt);
+  if (!won) movePlayer(dt);
+  updateHidden();
+  updateHumans(dt);
+  updateFires();
+  updateHP(dt);
   render();
   requestAnimationFrame(tick);
 }
 
-function clampToField(p) {
-  const m = 1.5;
-  p.x = Math.max(-ROOM.x + m, Math.min(ROOM.x - m, p.x));
-  p.z = Math.max(-ROOM.z + m, Math.min(ROOM.z - m, p.z));
-}
-
+function clampField(p) { const m = 2; p.x = Math.max(-ROOM.x + m, Math.min(ROOM.x - m, p.x)); p.z = Math.max(-ROOM.z + m, Math.min(ROOM.z - m, p.z)); }
 function movePlayer(dt) {
-  if (keyDown['arrowleft']) player.yaw -= TURN * dt;
-  if (keyDown['arrowright']) player.yaw += TURN * dt;
-  const fx = Math.sin(player.yaw), fz = -Math.cos(player.yaw);
-  const rx = -fz, rz = fx;
+  if (key['arrowleft']) player.yaw -= TURN * dt;
+  if (key['arrowright']) player.yaw += TURN * dt;
+  const fx = Math.sin(player.yaw), fz = -Math.cos(player.yaw), rx = -fz, rz = fx;
   let mx = 0, mz = 0;
-  if (keyDown['w'] || keyDown['arrowup']) { mx += fx; mz += fz; }
-  if (keyDown['s'] || keyDown['arrowdown']) { mx -= fx; mz -= fz; }
-  if (keyDown['d']) { mx += rx; mz += rz; }
-  if (keyDown['a']) { mx -= rx; mz -= rz; }
+  if (key['w'] || key['arrowup']) { mx += fx; mz += fz; }
+  if (key['s'] || key['arrowdown']) { mx -= fx; mz -= fz; }
+  if (key['d']) { mx += rx; mz += rz; }
+  if (key['a']) { mx -= rx; mz -= rz; }
   if (mx || mz) { const L = Math.hypot(mx, mz); mx /= L; mz /= L; }
   let sp = SPEED;
-  if (player.pounceT > 0) { mx += fx; mz += fz; sp = POUNCE_SPEED; } // lunge forward
-  player.pos.x += mx * sp * dt;
-  player.pos.z += mz * sp * dt;
-  clampToField(player.pos);
+  if (player.pounceT > 0) { mx += fx; mz += fz; sp = POUNCE_SPEED; }
+  player.pos.x += mx * sp * dt; player.pos.z += mz * sp * dt;
+  clampField(player.pos);
 }
 
-function wander(e, dt, speed) {
-  const u = e.userData;
-  u.retarget -= dt;
-  if (u.retarget <= 0 || (u.tx === 0 && u.tz === 0)) {
-    u.tx = (Math.random() * 2 - 1) * ROOM.x; u.tz = (Math.random() * 2 - 1) * ROOM.z;
-    u.retarget = 2 + Math.random() * 3;
+function updateHidden() {
+  hidden = false;
+  for (const b of bushes) if (dist2(player.pos.x, player.pos.z, b.x, b.z) < (b.r * 0.9) ** 2) { hidden = true; break; }
+}
+
+function losBlocked(ax, az, bx, bz) {
+  for (const b of bushes) if (segDist(ax, az, bx, bz, b.x, b.z) < b.r * 0.85) return true;
+  return false;
+}
+
+const catchReach = () => (player.pounceT > 0 ? 3.6 : 2.2);
+
+function updateHumans(dt) {
+  seen = false;
+  for (const h of humans) {
+    const u = h.userData; if (!u.alive) continue;
+    // scan: sweep the facing around the base heading
+    const heading = u.base + Math.sin(legPhase * u.scanSpd + u.phase) * u.scanAmp;
+    h.rotation.y = heading;
+    // detection
+    const dx = player.pos.x - h.position.x, dz = player.pos.z - h.position.z, d = Math.hypot(dx, dz) || 1;
+    let sees = false;
+    if (!hidden && d < VISION_RANGE) {
+      const fwd = new THREE.Vector3(Math.sin(heading), 0, Math.cos(heading));
+      const ang = Math.acos(THREE.MathUtils.clamp((dx / d) * fwd.x + (dz / d) * fwd.z, -1, 1));
+      if (ang < VISION_HALF && !losBlocked(h.position.x, h.position.z, player.pos.x, player.pos.z)) sees = true;
+    }
+    if (sees) seen = true;
+    u.fan.material.opacity = sees ? 0.42 : 0.14;
+    u.fan.material.color.setHex(sees ? 0xff0022 : C.cone);
+    // kill by pouncing within reach
+    if (d < catchReach()) {
+      u.alive = false; scene.remove(h);
+      poof(h.position.x, h.position.z, 0xff6a6a);
+      killed++;
+      if (killed >= HUMAN_COUNT && !won) { won = true; banner('CAMP CLEARED.\nEvery camper, unseen.\n(Backspace to play again)'); }
+    }
   }
-  const dx = u.tx - e.position.x, dz = u.tz - e.position.z, d = Math.hypot(dx, dz) || 1;
-  e.position.x += (dx / d) * speed * dt;
-  e.position.z += (dz / d) * speed * dt;
-  e.rotation.y = Math.atan2(dx, dz);
 }
 
-const catchReach = () => (player.pounceT > 0 ? 3.4 : 2.0);
+function updateHP(dt) {
+  if (won) return;
+  if (seen) { player.hp -= HP_DRAIN * dt; flashScreen('#ff0033'); }
+  else player.hp = Math.min(HP_MAX, player.hp + HP_REGEN * dt);
+  if (player.hp <= 0) { banner('SPOTTED!\nThe camp saw you — restarting.'); setTimeout(() => banner(''), 1200); softRestart(); }
+}
 
+function updateFires() {
+  const f = 0.8 + Math.sin(legPhase * 3) * 0.2 + Math.random() * 0.1;
+  for (const c of fires) { c.userData.flame.scale.y = f; c.userData.light.intensity = 0.9 + f * 0.4; }
+}
+
+// ---------- fx ----------
 function poof(x, z, color) {
-  const n = 14, geo = new THREE.BufferGeometry(), arr = new Float32Array(n * 3);
-  for (let i = 0; i < n; i++) { arr[i * 3] = x; arr[i * 3 + 1] = 1.2; arr[i * 3 + 2] = z; }
+  const n = 16, geo = new THREE.BufferGeometry(), arr = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) { arr[i * 3] = x; arr[i * 3 + 1] = 1.4; arr[i * 3 + 2] = z; }
   geo.setAttribute('position', new THREE.BufferAttribute(arr, 3));
-  const pts = new THREE.Points(geo, new THREE.PointsMaterial({ color, size: 0.5, transparent: true, opacity: 1 }));
-  const vels = []; for (let i = 0; i < n; i++) vels.push([(Math.random() * 2 - 1) * 4, Math.random() * 5 + 2, (Math.random() * 2 - 1) * 4]);
-  scene.add(pts);
-  let life = 0.6;
-  const anim = () => {
-    const d = 0.016; life -= d;
-    const pos = geo.attributes.position.array;
-    for (let i = 0; i < n; i++) { pos[i * 3] += vels[i][0] * d; pos[i * 3 + 1] += vels[i][1] * d; pos[i * 3 + 2] += vels[i][2] * d; vels[i][1] -= 9 * d; }
-    geo.attributes.position.needsUpdate = true;
-    pts.material.opacity = Math.max(0, life / 0.6);
+  const pts = new THREE.Points(geo, new THREE.PointsMaterial({ color, size: 0.6, transparent: true, opacity: 1 }));
+  const vel = []; for (let i = 0; i < n; i++) vel.push([(Math.random() * 2 - 1) * 5, Math.random() * 6 + 2, (Math.random() * 2 - 1) * 5]);
+  scene.add(pts); let life = 0.7;
+  (function anim() {
+    const d = 0.016; life -= d; const pos = geo.attributes.position.array;
+    for (let i = 0; i < n; i++) { pos[i * 3] += vel[i][0] * d; pos[i * 3 + 1] += vel[i][1] * d; pos[i * 3 + 2] += vel[i][2] * d; vel[i][1] -= 9 * d; }
+    geo.attributes.position.needsUpdate = true; pts.material.opacity = Math.max(0, life / 0.7);
     if (life > 0) requestAnimationFrame(anim); else scene.remove(pts);
-  };
-  anim();
-}
-
-function updatePrey(dt) {
-  for (const p of prey) {
-    const dx = player.pos.x - p.position.x, dz = player.pos.z - p.position.z;
-    const d = Math.hypot(dx, dz);
-    if (d < 9) { // flee from the spider
-      p.position.x -= (dx / d) * 6 * dt; p.position.z -= (dz / d) * 6 * dt;
-      p.rotation.y = Math.atan2(-dx, -dz);
-    } else {
-      wander(p, dt, 2.5);
-    }
-    clampToField(p.position);
-    // little hop
-    p.position.y = Math.abs(Math.sin(legPhase * 1.5 + p.id)) * 0.12;
-    if (d < catchReach()) { // caught!
-      poof(p.position.x, p.position.z, 0xfff0a0);
-      player.score += 1; player.health = Math.min(100, player.health + 12);
-      const s = randSpot(10); p.position.set(s.x, 0, s.z);
-    }
-  }
-}
-
-function updateBeasts(dt) {
-  for (const b of beasts) {
-    const u = b.userData; u.hitCd -= dt;
-    const dx = player.pos.x - b.position.x, dz = player.pos.z - b.position.z;
-    const d = Math.hypot(dx, dz) || 1;
-    const outPowered = player.power >= u.power;
-    if (outPowered && d < 22) {
-      b.position.x -= (dx / d) * 7 * dt; b.position.z -= (dz / d) * 7 * dt;
-      b.rotation.y = Math.atan2(-dx, -dz);
-      if (d < catchReach() + 1) {
-        poof(b.position.x, b.position.z, 0xffd14d);
-        player.score += 4; player.health = Math.min(100, player.health + 25);
-        const s = randSpot(24); b.position.set(s.x, 0, s.z);
-      }
-    } else if (!outPowered && d < 16) {
-      b.position.x += (dx / d) * 6.5 * dt; b.position.z += (dz / d) * 6.5 * dt;
-      b.rotation.y = Math.atan2(dx, dz);
-      if (d < 3 && u.hitCd <= 0) {
-        u.hitCd = 1; player.health -= 18; danger = 1; flashScreen('#ff0033');
-        if (player.health <= 0) { player.health = 100; player.pos.copy(start); banner('DOWN!\nThe beast got you — back to the start.'); setTimeout(() => banner(''), 1400); }
-      }
-    } else {
-      wander(b, dt, 3);
-    }
-    clampToField(b.position);
-    b.position.y = Math.sin(legPhase * 1.2) * 0.1;
-  }
-}
-
-function updatePetals(dt) {
-  const p = window.__petals; if (!p) return;
-  const pos = p.geometry.attributes.position.array;
-  for (let i = 0; i < pos.length; i += 3) {
-    pos[i + 1] -= 2 * dt; pos[i] += Math.sin(legPhase + i) * 0.01;
-    if (pos[i + 1] < 0) pos[i + 1] = 30;
-  }
-  p.geometry.attributes.position.needsUpdate = true;
+  })();
 }
 
 // ---------- Render ----------
@@ -433,19 +378,13 @@ function render() {
   playerSpider.position.set(player.pos.x, 0, player.pos.z);
   playerSpider.rotation.y = player.yaw;
   placeSpider(playerSpider);
-  // hide your own spider in first person so the camera doesn't clip through it
-  playerSpider.visible = !firstPerson;
-
+  playerSpider.visible = !firstPerson; // no clipping in FP
   const fx = Math.sin(player.yaw), fz = -Math.cos(player.yaw);
   if (firstPerson) {
     camera.position.set(player.pos.x + fx * 0.6, 2.3, player.pos.z + fz * 0.6);
-    camera.lookAt(
-      camera.position.x + fx * Math.cos(player.pitch),
-      camera.position.y + Math.sin(player.pitch),
-      camera.position.z + fz * Math.cos(player.pitch)
-    );
+    camera.lookAt(camera.position.x + fx * Math.cos(player.pitch), camera.position.y + Math.sin(player.pitch), camera.position.z + fz * Math.cos(player.pitch));
   } else {
-    camera.position.set(player.pos.x - fx * 10, 7, player.pos.z - fz * 10);
+    camera.position.set(player.pos.x - fx * 11, 8, player.pos.z - fz * 11);
     camera.lookAt(player.pos.x, 1.6, player.pos.z);
   }
   updateHud();
@@ -455,17 +394,23 @@ function render() {
 // ---------- HUD ----------
 const hudEl = document.getElementById('hud');
 const bannerEl = document.getElementById('banner');
-function bar(v, max, w) { const n = Math.round((v / max) * w); return '█'.repeat(Math.max(0, n)) + '░'.repeat(Math.max(0, w - n)); }
+const hpFill = document.getElementById('hpfill');
+const hpText = document.getElementById('hptext');
 function updateHud() {
-  const strong = player.power >= 2.4;
   hudEl.textContent =
-    `SPIDER HUNT\n` +
-    `HP   ${bar(player.health, 100, 14)} ${Math.max(0, player.health | 0)}\n` +
-    `Prey hunted: ${player.score}    Power: ${player.power.toFixed(1)}${strong ? '  (you can hunt the beasts!)' : ''}\n` +
-    `${danger > 0 ? '⚠ A BEAST IS HUNTING YOU\n' : ''}` +
+    `SPIDER HUNT  ·  stealth\n` +
+    `Campers left: ${HUMAN_COUNT - killed} / ${HUMAN_COUNT}` +
+    `${hidden ? '    [HIDDEN]' : ''}${seen ? '    ⚠ SPOTTED!' : ''}\n` +
     `Click to look · WASD move · SPACE pounce · V view`;
+  if (hpFill) {
+    const pct = Math.max(0, player.hp) / HP_MAX;
+    hpFill.style.width = (pct * 100) + '%';
+    hpFill.style.background = seen ? '#ff2a4d' : (pct > 0.4 ? '#00e5a0' : '#ffb020');
+    if (hpText) hpText.textContent = seen ? 'SPOTTED — HIDE!' : 'HP';
+  }
 }
 function banner(t) { bannerEl.textContent = t; bannerEl.style.opacity = t ? 1 : 0; }
-function flashScreen(color) { const f = document.getElementById('flash'); f.style.background = color; f.style.opacity = 0.45; setTimeout(() => { f.style.opacity = 0; }, 180); }
+let flashT = 0;
+function flashScreen(color) { const f = document.getElementById('flash'); if (performance.now() - flashT < 120) return; flashT = performance.now(); f.style.background = color; f.style.opacity = 0.35; setTimeout(() => { f.style.opacity = 0; }, 160); }
 
 requestAnimationFrame(tick);
