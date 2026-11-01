@@ -433,6 +433,8 @@ function render() {
   playerSpider.position.set(player.pos.x, 0, player.pos.z);
   playerSpider.rotation.y = player.yaw;
   placeSpider(playerSpider);
+  // hide your own spider in first person so the camera doesn't clip through it
+  playerSpider.visible = !firstPerson;
 
   const fx = Math.sin(player.yaw), fz = -Math.cos(player.yaw);
   if (firstPerson) {
