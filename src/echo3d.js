@@ -26,11 +26,9 @@ const TURN = 1.8;
 const MOUSE_SENS = 0.0022;
 const POUNCE_SPEED = 24;
 const HUMAN_COUNT = 5;                // fewer entities
-const VISION_RANGE = 17;
-const VISION_HALF = (30 * Math.PI) / 180;
+const VISION_RANGE = 34;              // big, invisible vision range
+const VISION_HALF = (45 * Math.PI) / 180;
 const HP_MAX = 100;
-const HP_DRAIN = 70;                  // per second while seen
-const HP_REGEN = 16;                  // per second while safe
 
 // ---------- Dark anime palette ----------
 const C = {
@@ -100,8 +98,9 @@ function segDist(ax, az, bx, bz, cx, cz) {
   return Math.hypot(cx - px, cz - pz);
 }
 
-// ---------- World: ground, grass, bushes (cover) ----------
-const bushes = []; // {x, z, r}
+// ---------- World: ground, grass, bushes (cover), trees, tents ----------
+const bushes = [];   // {x, z, r} — hiding spots that also block sight
+const blockers = []; // {x, z, r} — trees/tents: block sight only
 (function buildWorld() {
   const ground = new THREE.Mesh(new THREE.BoxGeometry(ROOM.x * 2, 1, ROOM.z * 2), toonMat(C.ground));
   ground.position.y = -0.5; scene.add(ground);
@@ -126,9 +125,9 @@ const bushes = []; // {x, z, r}
     [1, wh, ROOM.z * 2, -ROOM.x, wh / 2, 0], [1, wh, ROOM.z * 2, ROOM.x, wh / 2, 0]]) {
     const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), wallMat); m.position.set(x, y, z); scene.add(m);
   }
-  // bushes = hiding cover that blocks vision
-  const bushMat = toonMat(C.bush);
-  for (let k = 0; k < 60; k++) {
+  // bushes = hiding cover that blocks vision — slightly see-through
+  const bushMat = new THREE.MeshToonMaterial({ color: C.bush, transparent: true, opacity: 0.78, depthWrite: true });
+  for (let k = 0; k < 55; k++) {
     const g = new THREE.Group();
     const r = 2.4 + Math.random() * 1.6;
     for (let b = 0; b < 5; b++) {
@@ -143,7 +142,38 @@ const bushes = []; // {x, z, r}
     g.position.set(x, 0, z); scene.add(g);
     bushes.push({ x, z, r });
   }
+
+  // trees (tall cover, block sight)
+  const trunkMat = toonMat(C.trunk), leafMat = toonMat(0x14331f);
+  for (let k = 0; k < 22; k++) {
+    const t = new THREE.Group();
+    const h = 7 + Math.random() * 4;
+    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.8, h, 6), trunkMat); trunk.position.y = h / 2; t.add(trunk);
+    for (let c = 0; c < 4; c++) {
+      const s = 2.4 + Math.random() * 1.4;
+      const leaf = new THREE.Mesh(new THREE.IcosahedronGeometry(s, 0), leafMat);
+      leaf.position.set((Math.random() * 2 - 1) * 2, h + (Math.random() * 2 - 1) * 1.5, (Math.random() * 2 - 1) * 2);
+      t.add(leaf);
+    }
+    const x = (Math.random() * 2 - 1) * (ROOM.x - 5), z = (Math.random() * 2 - 1) * (ROOM.z - 5);
+    if (Math.hypot(x, z - 50) < 7) continue;
+    t.position.set(x, 0, z); scene.add(t);
+    blockers.push({ x, z, r: 1.4 });
+  }
 })();
+
+// a canvas tent near each camp (also blocks sight)
+function makeTent(x, z) {
+  const g = new THREE.Group();
+  const canvas = new THREE.Mesh(new THREE.ConeGeometry(2.4, 3, 4), toonMat(0x3a4a6a));
+  canvas.rotation.y = Math.PI / 4; canvas.position.y = 1.5; g.add(canvas);
+  const door = new THREE.Mesh(new THREE.ConeGeometry(0.9, 1.6, 4), toonMat(0x11161f));
+  door.rotation.y = Math.PI / 4; door.position.set(0, 0.8, 1.6); g.add(door);
+  addOutline(g, 1.04);
+  g.position.set(x, 0, z); scene.add(g);
+  blockers.push({ x, z, r: 2.0 });
+  return g;
+}
 
 // ---------- Netherite spider (player) ----------
 function makeLimb(sx, sy, sz, ex, ey, ez, thick, mat) {
@@ -205,8 +235,8 @@ function makeHuman() {
   const eyeMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
   for (const sx of [-0.12, 0.12]) { const e = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.05), eyeMat); e.position.set(sx, 2.14, 0.29); g.add(e); }
   addOutline(g, 1.08);
-  const fan = makeFan(VISION_RANGE, VISION_HALF); g.add(fan);
-  g.userData = { fan, base: 0, scanAmp: 0.3 + Math.random() * 0.5, scanSpd: 0.4 + Math.random() * 0.6, phase: Math.random() * 6, alive: true };
+  // stationary camper that does small idle activities, facing stays mostly fixed (no spinning)
+  g.userData = { alive: true, home: new THREE.Vector3(), heading: 0, targetHeading: 0, moving: false, idle: 1 + Math.random() * 3 };
   scene.add(g); return g;
 }
 function makeCampfire(x, z) {
@@ -232,18 +262,25 @@ function randSpot(minFromStart, others, minFromOthers) {
 
 const player = { pos: start.clone(), yaw: Math.PI, pitch: 0, hp: HP_MAX, pounceT: 0, pounceCd: 0 };
 const playerSpider = makeSpider();
-let humans = [], fires = [], killed = 0, won = false, legPhase = 0, seen = false, hidden = false;
+let humans = [], fires = [], tents = [], killed = 0, won = false, legPhase = 0, seen = false, hidden = false;
+let caught = false, caughtT = 0;
+let treeBlockerCount = -1;
 
 function spawnLevel() {
-  humans.forEach((h) => scene.remove(h)); fires.forEach((f) => scene.remove(f));
-  humans = []; fires = []; killed = 0; won = false;
+  if (treeBlockerCount < 0) treeBlockerCount = blockers.length; // trees are permanent
+  humans.forEach((h) => scene.remove(h)); fires.forEach((f) => scene.remove(f)); tents.forEach((t) => scene.remove(t));
+  blockers.length = treeBlockerCount; // drop last level's tent blockers
+  humans = []; fires = []; tents = []; killed = 0; won = false;
   for (let i = 0; i < HUMAN_COUNT; i++) {
-    const s = randSpot(20, humans, 16);
+    const s = randSpot(24, humans, 18);
     const h = makeHuman(); h.position.set(s.x, 0, s.z);
-    h.userData.base = Math.random() * Math.PI * 2;
+    const face = Math.random() * Math.PI * 2;
+    h.userData.home.set(s.x, 0, s.z);
+    h.userData.heading = face; h.userData.targetHeading = face; h.rotation.y = face;
     humans.push(h);
-    const fx = s.x + Math.cos(h.userData.base + 0.4) * 2.2, fz = s.z + Math.sin(h.userData.base + 0.4) * 2.2;
+    const fx = s.x + Math.cos(face) * 2.4, fz = s.z + Math.sin(face) * 2.4;
     fires.push(makeCampfire(fx, fz));
+    tents.push(makeTent(s.x - Math.cos(face) * 3, s.z - Math.sin(face) * 3));
   }
 }
 spawnLevel();
@@ -271,15 +308,19 @@ addEventListener('mousemove', (e) => {
 });
 let firstPerson = true;
 function pounce() { if (player.pounceCd <= 0) { player.pounceT = 0.3; player.pounceCd = 0.85; } }
-function restartLevel() { player.pos.copy(start); player.hp = HP_MAX; player.yaw = Math.PI; banner(''); spawnLevel(); }
-function softRestart() { // when seen: restart positions but keep nothing
-  player.pos.copy(start); player.hp = HP_MAX; spawnLevel();
-}
+function restartLevel() { caught = false; caughtT = 0; player.pos.copy(start); player.hp = HP_MAX; player.yaw = Math.PI; player.pitch = 0; banner(''); spawnLevel(); }
 
 // ---------- Loop ----------
 let last = performance.now();
 function tick(now) {
   const dt = Math.min((now - last) / 1000, 0.05); last = now;
+  // CAUGHT: freeze the action, zoom out, then restart
+  if (caught) {
+    caughtT += dt;
+    render();
+    if (caughtT > 2.6) { restartLevel(); }
+    requestAnimationFrame(tick); return;
+  }
   legPhase += dt * 9;
   if (player.pounceCd > 0) player.pounceCd -= dt;
   if (player.pounceT > 0) player.pounceT -= dt;
@@ -287,7 +328,6 @@ function tick(now) {
   updateHidden();
   updateHumans(dt);
   updateFires();
-  updateHP(dt);
   render();
   requestAnimationFrame(tick);
 }
@@ -316,6 +356,7 @@ function updateHidden() {
 
 function losBlocked(ax, az, bx, bz) {
   for (const b of bushes) if (segDist(ax, az, bx, bz, b.x, b.z) < b.r * 0.85) return true;
+  for (const b of blockers) if (segDist(ax, az, bx, bz, b.x, b.z) < b.r) return true;
   return false;
 }
 
@@ -325,23 +366,41 @@ function updateHumans(dt) {
   seen = false;
   for (const h of humans) {
     const u = h.userData; if (!u.alive) continue;
-    // scan: sweep the facing around the base heading
-    const heading = u.base + Math.sin(legPhase * u.scanSpd + u.phase) * u.scanAmp;
-    h.rotation.y = heading;
-    // detection
-    const dx = player.pos.x - h.position.x, dz = player.pos.z - h.position.z, d = Math.hypot(dx, dz) || 1;
-    const range = isSneaking() ? VISION_RANGE * 0.5 : VISION_RANGE; // sneaking = much harder to spot
-    let sees = false;
-    if (!hidden && d < range) {
-      const fwd = new THREE.Vector3(Math.sin(heading), 0, Math.cos(heading));
-      const ang = Math.acos(THREE.MathUtils.clamp((dx / d) * fwd.x + (dz / d) * fwd.z, -1, 1));
-      if (ang < VISION_HALF && !losBlocked(h.position.x, h.position.z, player.pos.x, player.pos.z)) sees = true;
+
+    // --- idle activities: small moves around camp, slow turns, never spinning ---
+    u.idle -= dt;
+    if (!u.moving && u.idle <= 0) {
+      if (Math.random() < 0.5) { // take a short stroll around camp
+        const a = Math.random() * Math.PI * 2, rr = 1 + Math.random() * 2.4;
+        u.tx = u.home.x + Math.cos(a) * rr; u.tz = u.home.z + Math.sin(a) * rr; u.moving = true;
+      } else { // just look somewhere new (slow turn)
+        u.targetHeading = Math.random() * Math.PI * 2; u.idle = 2.5 + Math.random() * 3;
+      }
     }
-    if (sees) seen = true;
-    u.fan.material.opacity = sees ? 0.42 : 0.14;
-    u.fan.material.color.setHex(sees ? 0xff0022 : C.cone);
-    // kill by pouncing within reach
-    if (d < catchReach()) {
+    if (u.moving) {
+      const tx = u.tx - h.position.x, tz = u.tz - h.position.z, dd = Math.hypot(tx, tz);
+      if (dd < 0.2) { u.moving = false; u.idle = 2.5 + Math.random() * 3; }
+      else { const sp2 = 1.7; h.position.x += (tx / dd) * sp2 * dt; h.position.z += (tz / dd) * sp2 * dt; u.targetHeading = Math.atan2(tx, tz); }
+    }
+    // ease the facing toward the target heading (slow, never a spin)
+    let da = u.targetHeading - u.heading; da = Math.atan2(Math.sin(da), Math.cos(da));
+    u.heading += da * Math.min(1, dt * 2.2);
+    h.rotation.y = u.heading;
+    h.position.y = Math.abs(Math.sin(legPhase * 1.5 + u.home.x)) * 0.04; // tiny idle bob
+
+    // --- detection (big, invisible cone) ---
+    const dx = player.pos.x - h.position.x, dz = player.pos.z - h.position.z, d = Math.hypot(dx, dz) || 1;
+    const range = isSneaking() ? VISION_RANGE * 0.5 : VISION_RANGE;
+    if (!hidden && d < range) {
+      const fwdx = Math.sin(u.heading), fwdz = Math.cos(u.heading);
+      const ang = Math.acos(THREE.MathUtils.clamp((dx / d) * fwdx + (dz / d) * fwdz, -1, 1));
+      if (ang < VISION_HALF && !losBlocked(h.position.x, h.position.z, player.pos.x, player.pos.z)) {
+        seen = true;
+        if (!caught && !won) triggerCaught();
+      }
+    }
+    // kill by pouncing within reach (only if not already caught)
+    if (!caught && d < catchReach()) {
       u.alive = false; scene.remove(h);
       poof(h.position.x, h.position.z, 0xff6a6a);
       killed++;
@@ -350,11 +409,10 @@ function updateHumans(dt) {
   }
 }
 
-function updateHP(dt) {
-  if (won) return;
-  if (seen) { player.hp -= HP_DRAIN * dt; flashScreen('#ff0033'); }
-  else player.hp = Math.min(HP_MAX, player.hp + HP_REGEN * dt);
-  if (player.hp <= 0) { banner('SPOTTED!\nThe camp saw you — restarting.'); setTimeout(() => banner(''), 1200); softRestart(); }
+function triggerCaught() {
+  caught = true; caughtT = 0;
+  banner('CAUGHT!\nA camper spotted you.\nRestarting...');
+  if (document.exitPointerLock) document.exitPointerLock();
 }
 
 function updateFires() {
@@ -387,12 +445,31 @@ function render() {
   playerSpider.position.set(player.pos.x, 0, player.pos.z);
   playerSpider.rotation.y = player.yaw;
   placeSpider(playerSpider);
-  // first person: hide the body but keep the two front legs in view
+  // show the whole spider in third-person or during the caught zoom-out; only forelegs in first person
+  const showFull = !firstPerson || caught;
   playerSpider.visible = true;
-  for (const ch of playerSpider.children) ch.visible = !firstPerson;
-  if (firstPerson) for (const pv of playerSpider.frontPivots) pv.visible = true;
+  for (const ch of playerSpider.children) ch.visible = showFull;
+  if (!showFull) {
+    // forelegs lead the view: sweep forward into frame and tilt with where you look
+    const fp = playerSpider.frontPivots;
+    for (let i = 0; i < fp.length; i++) {
+      const pv = fp[i];
+      pv.visible = true;
+      pv.rotation.y = (i === 0 ? -0.55 : 0.55);   // bring both forelegs toward center-front
+      pv.rotation.x = -player.pitch * 0.9;         // follow vertical look (up/down)
+    }
+  } else {
+    for (const pv of playerSpider.frontPivots) { pv.rotation.y = 0; pv.rotation.x = 0; }
+  }
+
   const fx = Math.sin(player.yaw), fz = -Math.cos(player.yaw);
-  if (firstPerson) {
+  if (caught) {
+    // freeze-frame: pull the camera up and back for a "you've been caught" reveal
+    const t = Math.min(1, caughtT / 1.2);
+    const target = new THREE.Vector3(player.pos.x + 3, 18 + 26 * t, player.pos.z + 16 + 14 * t);
+    camera.position.lerp(target, 0.1);
+    camera.lookAt(player.pos.x, 1.2, player.pos.z);
+  } else if (firstPerson) {
     camera.position.set(player.pos.x + fx * 0.6, 2.3, player.pos.z + fz * 0.6);
     camera.lookAt(camera.position.x + fx * Math.cos(player.pitch), camera.position.y + Math.sin(player.pitch), camera.position.z + fz * Math.cos(player.pitch));
   } else {
