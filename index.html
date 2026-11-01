@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ECHO 3D — a spider thief</title>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #07070f;
+      font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; color: #cfe0ff; }
+    #game { position: fixed; inset: 0; }
+    #hud {
+      position: fixed; top: 14px; left: 16px; z-index: 5; white-space: pre;
+      font-size: 14px; color: #9fb4e8; text-shadow: 0 0 8px rgba(0,0,0,0.9);
+      pointer-events: none; line-height: 1.5;
+    }
+    #banner {
+      position: fixed; top: 42%; left: 0; right: 0; z-index: 6; text-align: center;
+      white-space: pre-line; font-size: 30px; color: #00ff9d; opacity: 0;
+      transition: opacity 0.4s; text-shadow: 0 0 20px rgba(0,255,157,0.6); pointer-events: none;
+    }
+    #hint {
+      position: fixed; bottom: 16px; left: 0; right: 0; z-index: 5; text-align: center;
+      font-size: 13px; color: #5a6aa0; pointer-events: none;
+    }
+    #flash { position: fixed; inset: 0; z-index: 4; background: #fff; opacity: 0;
+      transition: opacity 0.18s; pointer-events: none; }
+    b { color: #00e5ff; }
+  </style>
+</head>
+<body>
+  <div id="game"></div>
+  <div id="flash"></div>
+  <div id="hud"></div>
+  <div id="banner"></div>
+  <div id="hint">Get the gold gem back to the glowing pad. The gate needs the plate held —
+    press <b>R</b> so your past self holds it. Stay out of the guard's red cone.</div>
+
+  <!-- Three.js 3D engine, loaded from a CDN so this file just works when you open it -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="src/echo3d.js"></script>
+</body>
+</html>

@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ECHO — a spider thief</title>
+  <style>
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: #06060d;
+      color: #afc7ff;
+      font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    h1 {
+      letter-spacing: 0.4em;
+      font-weight: 400;
+      font-size: 18px;
+      color: #00e5ff;
+      margin: 18px 0 4px;
+      text-shadow: 0 0 12px rgba(0, 229, 255, 0.5);
+    }
+    .sub { color: #5a6aa0; font-size: 12px; margin-bottom: 14px; }
+    #game {
+      border: 1px solid #1b1b30;
+      box-shadow: 0 0 60px rgba(90, 60, 200, 0.25);
+      border-radius: 6px;
+      overflow: hidden;
+    }
+    .tip { color: #44508a; font-size: 12px; margin-top: 14px; max-width: 900px; text-align: center; }
+  </style>
+</head>
+<body>
+  <h1>E C H O</h1>
+  <div class="sub">a spider thief who steals from the past</div>
+  <div id="game"></div>
+  <div class="tip">Move with WASD. Press <b>R</b> to rewind — your run becomes a ghost that replays. Make your past self hold the plate.</div>
+
+  <!-- Phaser game engine, loaded from a CDN so this file just works by opening it -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.80.1/phaser.min.js"></script>
+  <script src="src/game.js"></script>
+</body>
+</html>
