@@ -1,452 +1,451 @@
 /* ============================================================
-   ECHO 3D — a spider thief who steals from the past
-   Version 1 (3D, FIRST PERSON), Room 1: "The Echo"
+   ECHO — Spider Hunt (3D, first person, anime toon style)
 
-   You ARE the spider. Look around with the mouse (click the
-   screen first), crawl with WASD, and use REWIND (R): your past
-   run becomes a glowing ghost-spider that keeps replaying — and
-   it can hold the pressure plate so the real you slips through
-   the gate to the gem. Watch the guard's red vision cone.
+   You are a spider predator. Hunt the little people and critters
+   to grow stronger — but bigger BEASTS roam the field and will
+   hunt YOU. Eat enough prey and you grow powerful enough to turn
+   the tables and hunt the beasts too.
 
    Controls:
-     Click the screen .... lock the mouse so you can look around
+     Click the screen .... lock the mouse to look around
      Mouse ............... look
-     W / S ............... walk forward / back (where you look)
-     A / D ............... step left / right
+     W / A / S / D ....... crawl (relative to where you look)
      Left / Right arrow .. turn
-     R ................... rewind (your run becomes an echo)
-     V ................... toggle first-person / look-at-yourself
-     Backspace ........... reset the room
-     Esc ................. release the mouse
+     SPACE ............... pounce! (a quick lunge to catch things)
+     V ................... toggle first-person / see your spider
+     Backspace ........... restart the hunt
    ============================================================ */
 
 /* global THREE */
 
 // ---------- Tunables ----------
-const ROOM = { x: 18, z: 12 };
-const SPEED = 8;
-const TURN = 1.8;              // arrow-key turn speed (rad/sec)
+const ROOM = { x: 30, z: 30 };
+const SPEED = 9;
+const TURN = 1.8;
 const MOUSE_SENS = 0.0022;
-const MAX_ECHOES = 4;
-const GUARD_RANGE = 11;
-const GUARD_FOV = (55 * Math.PI) / 180;
+const POUNCE_SPEED = 20;
+const PREY_COUNT = 9;
+const BEAST_COUNT = 2;
 
-// ---------- Colours ----------
+// ---------- Dark anime palette ----------
 const C = {
-  bg: 0x07070f,
-  floor: 0x12122a,
-  wall: 0x1c1c38,
-  netherite: 0x2b2730,   // dark netherite body
-  netherite2: 0x3a3340,  // lighter facets
-  playerEye: 0xff5a1f,   // glowing red-orange eyes
-  echoBody: 0x3a2a55,
-  echoEye: 0xb14dff,     // purple ghost
-  guard: 0x2a0d14,
-  guardEye: 0xff2d55,
-  cone: 0xff3366,
-  plateOff: 0x5a1038,
-  plateOn: 0x00ff9d,
-  gate: 0xff3366,
-  gem: 0xffcf3f,
-  exit: 0x1b3a6a,
+  sky: 0x0d0b1f,        // deep night indigo
+  fog: 0x14102a,
+  ground: 0x1a2240,     // dark moonlit grass
+  ground2: 0x141a33,
+  spider: 0x1a1720,
+  spiderEye: 0xff5a1f,  // glowing red-orange
+  trunk: 0x2a2030,
+  blossom: 0xb14dff,    // glowing violet blossoms
+  rock: 0x2e3350,
+  prey: [0x7fd8ff, 0xff8fd0, 0xffe07a, 0xb388ff, 0x8affc1], // glowy spirits
+  beast: 0xff2e4d,
+  beastEye: 0xffe14d,
+  petal: 0x9ad8ff,      // drifting glow-spores
+  moon: 0xf4f0ff,
+  outline: 0x05040a,
 };
 
 // ---------- Scene ----------
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(C.bg);
-scene.fog = new THREE.Fog(C.bg, 22, 58);
+scene.background = new THREE.Color(C.sky);
+scene.fog = new THREE.Fog(C.fog, 26, 78);
 
-const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 200);
+const camera = new THREE.PerspectiveCamera(72, window.innerWidth / window.innerHeight, 0.1, 300);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 const canvas = renderer.domElement;
 document.getElementById('game').appendChild(canvas);
-
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-// ---------- Lights ----------
-scene.add(new THREE.AmbientLight(0x4466aa, 0.4));
-const keyL = new THREE.DirectionalLight(0x88aaff, 0.5);
-keyL.position.set(10, 20, 10); scene.add(keyL);
-const g1 = new THREE.PointLight(0xff6a2a, 0.5, 40); g1.position.set(-12, 6, 8); scene.add(g1);
-const g2 = new THREE.PointLight(0xb14dff, 0.4, 40); g2.position.set(13, 6, -8); scene.add(g2);
+// ---------- Lights (moonlit toon) ----------
+scene.add(new THREE.HemisphereLight(0x3a4a8f, 0x0a0a14, 0.55)); // cool sky / dark ground
+const moonLight = new THREE.DirectionalLight(0xbcd0ff, 0.7);
+moonLight.position.set(-14, 22, -8); scene.add(moonLight);
+scene.add(new THREE.AmbientLight(0x222a44, 0.4));
+// a magenta rim light for the anime glow
+const rim = new THREE.PointLight(0xb14dff, 0.5, 70); rim.position.set(0, 10, 0); scene.add(rim);
 
-// ---------- Room ----------
-(function buildRoom() {
-  const floor = new THREE.Mesh(
-    new THREE.BoxGeometry(ROOM.x * 2, 1, ROOM.z * 2),
-    new THREE.MeshStandardMaterial({ color: C.floor, roughness: 0.95 })
-  );
-  floor.position.y = -0.5; scene.add(floor);
-
-  const grid = new THREE.GridHelper(ROOM.x * 2, 24, 0x2a2a55, 0x1a1a3a);
-  grid.position.y = 0.02; scene.add(grid);
-
-  const wallMat = new THREE.MeshStandardMaterial({ color: C.wall, roughness: 1 });
-  const wh = 4;
-  const walls = [
-    [ROOM.x * 2, wh, 0.6, 0, wh / 2, -ROOM.z],
-    [ROOM.x * 2, wh, 0.6, 0, wh / 2, ROOM.z],
-    [0.6, wh, ROOM.z * 2, -ROOM.x, wh / 2, 0],
-    [0.6, wh, ROOM.z * 2, ROOM.x, wh / 2, 0],
-  ];
-  for (const [w, h, d, x, y, z] of walls) {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), wallMat);
-    m.position.set(x, y, z); scene.add(m);
+// the moon + stars
+(function sky() {
+  const moon = new THREE.Mesh(new THREE.CircleGeometry(6, 32), new THREE.MeshBasicMaterial({ color: C.moon }));
+  moon.position.set(-30, 34, -55); moon.lookAt(0, 0, 0); scene.add(moon);
+  const halo = new THREE.Mesh(new THREE.CircleGeometry(9, 32), new THREE.MeshBasicMaterial({ color: 0xbfa8ff, transparent: true, opacity: 0.18 }));
+  halo.position.copy(moon.position); halo.lookAt(0, 0, 0); scene.add(halo);
+  const N = 400, g = new THREE.BufferGeometry(), p = new Float32Array(N * 3);
+  for (let i = 0; i < N; i++) {
+    const r = 120, th = Math.random() * Math.PI * 2, ph = Math.random() * Math.PI * 0.5;
+    p[i * 3] = Math.cos(th) * Math.sin(ph) * r;
+    p[i * 3 + 1] = Math.cos(ph) * r + 10;
+    p[i * 3 + 2] = Math.sin(th) * Math.sin(ph) * r;
   }
+  g.setAttribute('position', new THREE.BufferAttribute(p, 3));
+  scene.add(new THREE.Points(g, new THREE.PointsMaterial({ color: 0xcfe0ff, size: 0.7 })));
 })();
 
-// ---------- Netherite spider factory ----------
-// A blocky, low-poly spider: angular body + 8 long splayed legs,
-// glowing eyes. ghost=true makes a translucent purple echo.
-function makeLimb(sx, sy, sz, ex, ey, ez, thick, mat) {
-  const start = new THREE.Vector3(sx, sy, sz);
-  const end = new THREE.Vector3(ex, ey, ez);
-  const dir = new THREE.Vector3().subVectors(end, start);
-  const len = dir.length();
-  const box = new THREE.Mesh(new THREE.BoxGeometry(thick, thick, len), mat);
-  box.position.copy(start).addScaledVector(dir, 0.5);
-  box.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir.clone().normalize());
-  return box;
+// ---------- Toon material helper + outline ----------
+function toonMat(color) { return new THREE.MeshToonMaterial({ color }); }
+function addOutline(group, s = 1.08) {
+  const mat = new THREE.MeshBasicMaterial({ color: C.outline, side: THREE.BackSide });
+  const extra = [];
+  group.children.forEach((ch) => {
+    if (ch.isMesh && ch.geometry) {
+      const o = new THREE.Mesh(ch.geometry, mat);
+      o.position.copy(ch.position); o.quaternion.copy(ch.quaternion);
+      o.scale.copy(ch.scale).multiplyScalar(s);
+      extra.push(o);
+    }
+  });
+  extra.forEach((o) => group.add(o));
 }
 
-function makeSpider(ghost) {
-  const g = new THREE.Group();
-  const bodyMat = new THREE.MeshStandardMaterial({
-    color: ghost ? C.echoBody : C.netherite,
-    roughness: 0.45, metalness: 0.55, flatShading: true,
-    transparent: ghost, opacity: ghost ? 0.5 : 1,
-  });
-  const facetMat = new THREE.MeshStandardMaterial({
-    color: ghost ? C.echoBody : C.netherite2,
-    roughness: 0.4, metalness: 0.6, flatShading: true,
-    transparent: ghost, opacity: ghost ? 0.5 : 1,
-  });
-  const eyeMat = new THREE.MeshBasicMaterial({
-    color: ghost ? C.echoEye : C.playerEye,
-    transparent: ghost, opacity: ghost ? 0.6 : 1,
-  });
+// ---------- World: ground, trees, rocks, petals ----------
+(function buildWorld() {
+  const ground = new THREE.Mesh(
+    new THREE.BoxGeometry(ROOM.x * 2, 1, ROOM.z * 2),
+    toonMat(C.ground)
+  );
+  ground.position.y = -0.5; scene.add(ground);
 
-  const bodyY = 1.6; // body rides this high on its legs
-
-  // abdomen (big rear block), slightly raised and angular
-  const abdomen = new THREE.Mesh(new THREE.BoxGeometry(1.7, 1.1, 2.1), bodyMat);
-  abdomen.position.set(0, bodyY + 0.15, 0.9);
-  abdomen.rotation.x = -0.12;
-  g.add(abdomen);
-  // a smaller facet block on top for the chiselled netherite look
-  const hump = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.5, 1.3), facetMat);
-  hump.position.set(0, bodyY + 0.75, 0.9); hump.rotation.x = -0.12;
-  g.add(hump);
-
-  // cephalothorax (front/head block)
-  const head = new THREE.Mesh(new THREE.BoxGeometry(1.25, 0.9, 1.25), bodyMat);
-  head.position.set(0, bodyY, -0.75);
-  g.add(head);
-
-  // glowing eyes — a cluster on the front face of the head
-  const eyePositions = [
-    [-0.32, bodyY + 0.18, -1.4], [0.32, bodyY + 0.18, -1.4],
-    [-0.15, bodyY - 0.05, -1.42], [0.15, bodyY - 0.05, -1.42],
-  ];
-  for (const [ex, ey, ez] of eyePositions) {
-    const eye = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.17, 0.08), eyeMat);
-    eye.position.set(ex, ey, ez); g.add(eye);
-  }
-  // eye glow halo
-  const halo = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.5, 0.1),
-    new THREE.MeshBasicMaterial({ color: ghost ? C.echoEye : C.playerEye, transparent: true, opacity: 0.12 }));
-  halo.position.set(0, bodyY + 0.06, -1.45); g.add(halo);
-
-  // 8 legs — 4 per side, long and splayed: up to a high knee, then down to the floor
-  const legMat = bodyMat;
-  g.legGroups = [];
-  const attachZ = [-1.0, -0.3, 0.5, 1.3];  // front -> back
-  for (let i = 0; i < 4; i++) {
-    for (const side of [-1, 1]) {
-      const pivot = new THREE.Group();
-      g.add(pivot);
-      const az = attachZ[i];
-      const ax = side * 0.7;
-      // knee: out and UP from the body
-      const kx = side * 2.4, ky = bodyY + 1.0, kz = az + side * 0.1;
-      // foot: further out and DOWN to the floor
-      const fx = side * 3.1, fy = 0.05, fz = az + side * 0.2;
-      const upper = makeLimb(ax, bodyY + 0.2, az, kx, ky, kz, 0.26, legMat);
-      const lower = makeLimb(kx, ky, kz, fx, fy, fz, 0.2, legMat);
-      pivot.add(upper); pivot.add(lower);
-      g.legGroups.push({ pivot, phase: i * 0.8 + (side > 0 ? Math.PI : 0) });
+  // checkered toon patches for a stylised field
+  for (let i = -ROOM.x; i < ROOM.x; i += 6) {
+    for (let j = -ROOM.z; j < ROOM.z; j += 6) {
+      if (((i + j) / 6) % 2 === 0) continue;
+      const patch = new THREE.Mesh(new THREE.BoxGeometry(6, 1.02, 6), toonMat(C.ground2));
+      patch.position.set(i + 3, -0.5, j + 3); scene.add(patch);
     }
   }
 
-  // carried-gem sparkle (shown when carrying)
-  g.spark = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 0.3),
-    new THREE.MeshBasicMaterial({ color: C.gem }));
-  g.spark.position.set(0, bodyY + 1.3, 0.9);
-  g.spark.visible = false; g.add(g.spark);
+  // sakura trees
+  function tree(x, z) {
+    const t = new THREE.Group();
+    const trunk = new THREE.Mesh(new THREE.BoxGeometry(0.8, 4, 0.8), toonMat(C.trunk));
+    trunk.position.y = 2; t.add(trunk);
+    const glowMat = new THREE.MeshBasicMaterial({ color: C.blossom });
+    for (const [ox, oy, oz, s] of [[0, 4.4, 0, 2.4], [1.4, 3.8, 0.6, 1.6], [-1.2, 3.9, -0.8, 1.6], [0.4, 5.2, -1.2, 1.4]]) {
+      const b = new THREE.Mesh(new THREE.BoxGeometry(s, s, s), glowMat);
+      b.position.set(ox, oy, oz); b.rotation.set(0.3, 0.5, 0.2); t.add(b);
+    }
+    addOutline(t, 1.05);
+    t.position.set(x, 0, z); scene.add(t);
+  }
+  for (let k = 0; k < 10; k++) {
+    tree((Math.random() * 2 - 1) * (ROOM.x - 4), (Math.random() * 2 - 1) * (ROOM.z - 4));
+  }
+  // rocks
+  for (let k = 0; k < 8; k++) {
+    const r = new THREE.Group();
+    const rock = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.2, 1.4), toonMat(C.rock));
+    rock.rotation.set(0.2, Math.random() * 3, 0.1); r.add(rock);
+    addOutline(r, 1.08);
+    r.position.set((Math.random() * 2 - 1) * ROOM.x, 0.4, (Math.random() * 2 - 1) * ROOM.z);
+    scene.add(r);
+  }
 
+  // drifting sakura petals
+  const N = 260;
+  const geo = new THREE.BufferGeometry();
+  const pos = new Float32Array(N * 3);
+  for (let i = 0; i < N; i++) {
+    pos[i * 3] = (Math.random() * 2 - 1) * ROOM.x;
+    pos[i * 3 + 1] = Math.random() * 30;
+    pos[i * 3 + 2] = (Math.random() * 2 - 1) * ROOM.z;
+  }
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  const petals = new THREE.Points(geo, new THREE.PointsMaterial({ color: C.petal, size: 0.4, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending }));
+  scene.add(petals);
+  window.__petals = petals;
+})();
+
+// ---------- Netherite spider (the player) ----------
+function makeLimb(sx, sy, sz, ex, ey, ez, thick, mat) {
+  const s = new THREE.Vector3(sx, sy, sz), e = new THREE.Vector3(ex, ey, ez);
+  const dir = new THREE.Vector3().subVectors(e, s);
+  const box = new THREE.Mesh(new THREE.BoxGeometry(thick, thick, dir.length()), mat);
+  box.position.copy(s).addScaledVector(dir, 0.5);
+  box.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir.clone().normalize());
+  return box;
+}
+function makeSpider() {
+  const g = new THREE.Group();
+  const body = toonMat(C.spider);
+  const eyeMat = new THREE.MeshBasicMaterial({ color: C.spiderEye });
+  const bodyY = 1.6;
+  const abdomen = new THREE.Mesh(new THREE.BoxGeometry(1.7, 1.1, 2.1), body);
+  abdomen.position.set(0, bodyY + 0.15, 0.9); abdomen.rotation.x = -0.12; g.add(abdomen);
+  const head = new THREE.Mesh(new THREE.BoxGeometry(1.25, 0.9, 1.25), body);
+  head.position.set(0, bodyY, -0.75); g.add(head);
+  for (const [ex, ey] of [[-0.32, 0.18], [0.32, 0.18], [-0.15, -0.05], [0.15, -0.05]]) {
+    const eye = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.17, 0.08), eyeMat);
+    eye.position.set(ex, bodyY + ey, -1.4); g.add(eye);
+  }
+  g.legGroups = [];
+  const attachZ = [-1.0, -0.3, 0.5, 1.3];
+  for (let i = 0; i < 4; i++) for (const side of [-1, 1]) {
+    const pivot = new THREE.Group(); g.add(pivot);
+    const az = attachZ[i];
+    const kx = side * 2.4, ky = bodyY + 1.0, kz = az + side * 0.1;
+    const fx = side * 3.1, fz = az + side * 0.2;
+    pivot.add(makeLimb(side * 0.7, bodyY + 0.2, az, kx, ky, kz, 0.26, body));
+    pivot.add(makeLimb(kx, ky, kz, fx, 0.05, fz, 0.2, body));
+    g.legGroups.push({ pivot, phase: i * 0.8 + (side > 0 ? Math.PI : 0) });
+  }
   scene.add(g);
   return g;
 }
 
-// ---------- Puzzle objects ----------
-const start = new THREE.Vector3(-14, 0, 9);
+// ---------- Prey (little people + critters) ----------
+function makePrey() {
+  const g = new THREE.Group();
+  const col = C.prey[(Math.random() * C.prey.length) | 0];
+  const skin = toonMat(0xe8c6a0);
+  const cloth = new THREE.MeshToonMaterial({ color: col, emissive: col, emissiveIntensity: 0.6 });
+  const dark = toonMat(0x1d1f2e);
+  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.9, 0.4), cloth); torso.position.y = 1.2; g.add(torso);
+  const headM = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), skin); headM.position.y = 1.95; g.add(headM);
+  for (const sx of [-0.18, 0.18]) { const l = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.8, 0.25), dark); l.position.set(sx, 0.4, 0); g.add(l); }
+  for (const sx of [-0.45, 0.45]) { const a = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.7, 0.2), cloth); a.position.set(sx, 1.25, 0); g.add(a); }
+  const eyeMat = new THREE.MeshBasicMaterial({ color: 0x222 });
+  for (const sx of [-0.1, 0.1]) { const e = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.07, 0.05), eyeMat); e.position.set(sx, 1.98, -0.26); g.add(e); }
+  addOutline(g, 1.09);
+  g.userData = { kind: 'prey', vx: 0, vz: 0, tx: 0, tz: 0, retarget: 0, flee: 0 };
+  scene.add(g);
+  return g;
+}
 
-const plate = { x: -12, z: -7, half: 2.4, active: false };
-const plateMesh = new THREE.Mesh(
-  new THREE.BoxGeometry(plate.half * 2, 0.15, plate.half * 2),
-  new THREE.MeshStandardMaterial({ color: C.plateOff, emissive: C.plateOff, emissiveIntensity: 0.3 })
-);
-plateMesh.position.set(plate.x, 0.08, plate.z); scene.add(plateMesh);
-
-const gate = { x: 0, zMin: -2, zMax: 12, open: false };
-const gateMesh = new THREE.Mesh(
-  new THREE.BoxGeometry(0.4, 3, gate.zMax - gate.zMin),
-  new THREE.MeshStandardMaterial({ color: C.gate, emissive: C.gate, emissiveIntensity: 0.6, transparent: true, opacity: 0.85 })
-);
-gateMesh.position.set(gate.x, 1.5, (gate.zMin + gate.zMax) / 2); scene.add(gateMesh);
-
-const gem = { x: 13, z: -8, taken: false, r: 1.3 };
-const gemMesh = new THREE.Mesh(
-  new THREE.OctahedronGeometry(0.8),
-  new THREE.MeshStandardMaterial({ color: C.gem, emissive: C.gem, emissiveIntensity: 0.7, metalness: 0.4, roughness: 0.2 })
-);
-gemMesh.position.set(gem.x, 1.3, gem.z); scene.add(gemMesh);
-
-const exit = { x: start.x, z: start.z, r: 2.6 };
-const exitMesh = new THREE.Mesh(
-  new THREE.CylinderGeometry(exit.r, exit.r, 0.1, 24),
-  new THREE.MeshStandardMaterial({ color: C.exit, emissive: C.exit, emissiveIntensity: 0.5, transparent: true, opacity: 0.6 })
-);
-exitMesh.position.set(exit.x, 0.06, exit.z); scene.add(exitMesh);
-
-// ---------- Guard + vision cone ----------
-const guard = {
-  group: new THREE.Group(),
-  waypoints: [new THREE.Vector3(6, 0, -8), new THREE.Vector3(6, 0, 8)],
-  target: 1, speed: 5, heading: 0,
-};
-(function buildGuard() {
-  const mat = new THREE.MeshStandardMaterial({ color: C.guard, roughness: 0.6, metalness: 0.3, flatShading: true });
-  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.8, 2.6, 8), mat);
-  body.position.y = 1.3; guard.group.add(body);
-  const head = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat);
-  head.position.y = 3; guard.group.add(head);
-  const eyeMat = new THREE.MeshBasicMaterial({ color: C.guardEye });
-  for (const sx of [-0.22, 0.22]) {
-    const eye = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.16, 0.08), eyeMat);
-    eye.position.set(sx, 3.05, -0.5); guard.group.add(eye);
+// ---------- Beast (predator that hunts you) ----------
+function makeBeast() {
+  const g = new THREE.Group();
+  const body = new THREE.MeshToonMaterial({ color: C.beast, emissive: 0x6a0012, emissiveIntensity: 0.5 });
+  const dark = toonMat(0x4a0a16);
+  const eyeMat = new THREE.MeshBasicMaterial({ color: C.beastEye });
+  const trunk = new THREE.Mesh(new THREE.BoxGeometry(1.8, 1.6, 3.4), body); trunk.position.y = 2; g.add(trunk);
+  const head = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.4, 1.4), body); head.position.set(0, 2.3, -2.2); g.add(head);
+  // jaw + fangs
+  const jaw = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.4, 1.0), dark); jaw.position.set(0, 1.6, -2.4); g.add(jaw);
+  for (const sx of [-0.4, 0.4]) { const f = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.5, 0.16), toonMat(0xffffff)); f.position.set(sx, 1.65, -2.9); g.add(f); }
+  for (const sx of [-0.45, 0.45]) { const e = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 0.12), eyeMat); e.position.set(sx, 2.6, -2.85); g.add(e); }
+  for (const [sx, sz] of [[-0.9, 1.2], [0.9, 1.2], [-0.9, -1.0], [0.9, -1.0]]) {
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.5, 2.0, 0.5), dark); leg.position.set(sx, 1.0, sz); g.add(leg);
   }
-  const range = GUARD_RANGE, rad = Math.tan(GUARD_FOV) * range;
-  const coneGeo = new THREE.ConeGeometry(rad, range, 24, 1, true);
-  coneGeo.translate(0, -range / 2, 0);
-  coneGeo.rotateX(-Math.PI / 2);
-  guard.coneMat = new THREE.MeshBasicMaterial({ color: C.cone, transparent: true, opacity: 0.16, side: THREE.DoubleSide, depthWrite: false });
-  const cone = new THREE.Mesh(coneGeo, guard.coneMat);
-  cone.position.y = 1.6; guard.group.add(cone);
-  scene.add(guard.group);
-})();
+  addOutline(g, 1.06);
+  g.userData = { kind: 'beast', power: 2.4, tx: 0, tz: 0, retarget: 0, hitCd: 0, fleeing: false };
+  scene.add(g);
+  return g;
+}
 
-// ---------- Actors / state ----------
-const player = { pos: start.clone(), carrying: false, yaw: 0, pitch: 0 };
-const playerSpider = makeSpider(false);
-let echoes = [];     // { frames:[{x,z,yaw}], i, spider }
-let recording = [];
-let runCount = 1;
-let won = false, caught = 0;
-let legPhase = 0;
-let firstPerson = true;
+// ---------- Spawning ----------
+const start = new THREE.Vector3(0, 0, 18);
+function randSpot(minFromPlayer) {
+  for (let t = 0; t < 30; t++) {
+    const x = (Math.random() * 2 - 1) * (ROOM.x - 3);
+    const z = (Math.random() * 2 - 1) * (ROOM.z - 3);
+    if (Math.hypot(x - player.pos.x, z - player.pos.z) > minFromPlayer) return { x, z };
+  }
+  return { x: 0, z: 0 };
+}
+
+const player = { pos: start.clone(), yaw: 0, pitch: 0, health: 100, score: 0, power: 1, pounceT: 0, pounceCd: 0 };
+const playerSpider = makeSpider();
+let prey = [], beasts = [];
+let firstPerson = true, legPhase = 0, danger = 0;
+
+function spawnAll() {
+  prey.forEach((p) => scene.remove(p)); beasts.forEach((b) => scene.remove(b));
+  prey = []; beasts = [];
+  for (let i = 0; i < PREY_COUNT; i++) { const p = makePrey(); const s = randSpot(8); p.position.set(s.x, 0, s.z); p.id = i * 1.7; prey.push(p); }
+  for (let i = 0; i < BEAST_COUNT; i++) { const b = makeBeast(); const s = randSpot(22); b.position.set(s.x, 0, s.z); beasts.push(b); }
+}
+spawnAll();
 
 // ---------- Input ----------
 const keyDown = {};
 window.addEventListener('keydown', (e) => {
   const k = e.key.toLowerCase();
   if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].includes(k)) e.preventDefault();
-  if (k === 'r') rewind();
-  else if (k === 'backspace') resetRoom();
+  if (k === ' ') { if (!e.repeat) pounce(); }
+  else if (k === 'backspace') restart();
   else if (k === 'v') firstPerson = !firstPerson;
   else keyDown[k] = true;
 });
 window.addEventListener('keyup', (e) => { keyDown[e.key.toLowerCase()] = false; });
-
-// mouse look (pointer lock)
 canvas.addEventListener('click', () => { if (firstPerson) canvas.requestPointerLock(); });
 document.addEventListener('mousemove', (e) => {
   if (document.pointerLockElement === canvas) {
     player.yaw += e.movementX * MOUSE_SENS;
-    player.pitch -= e.movementY * MOUSE_SENS;
-    player.pitch = Math.max(-1.1, Math.min(1.1, player.pitch));
+    player.pitch = Math.max(-1.1, Math.min(1.1, player.pitch - e.movementY * MOUSE_SENS));
   }
 });
 
-function rewind() {
-  if (won) return;
-  if (recording.length > 10) {
-    const spider = makeSpider(true);
-    echoes.push({ frames: recording, i: 0, spider });
-    if (echoes.length > MAX_ECHOES) scene.remove(echoes.shift().spider);
-  }
-  recording = [];
-  player.pos.copy(start); player.carrying = false;
-  gem.taken = false; gemMesh.visible = true;
-  runCount++; flashScreen('#ff6a2a');
+function pounce() { if (player.pounceCd <= 0) { player.pounceT = 0.28; player.pounceCd = 0.8; } }
+function restart() {
+  player.pos.copy(start); player.health = 100; player.score = 0; player.power = 1;
+  banner(''); spawnAll();
 }
 
-function resetRoom() {
-  for (const e of echoes) scene.remove(e.spider);
-  echoes = []; recording = [];
-  player.pos.copy(start); player.carrying = false;
-  gem.taken = false; gemMesh.visible = true;
-  runCount = 1; won = false; banner('');
-}
-
-// ---------- Helpers ----------
-function onPlate(x, z) { return Math.abs(x - plate.x) < plate.half && Math.abs(z - plate.z) < plate.half; }
-function crossesGate(x, z) { return !gate.open && Math.abs(x - gate.x) < 0.9 && z > gate.zMin && z < gate.zMax; }
-function dist2(ax, az, bx, bz) { const dx = ax - bx, dz = az - bz; return dx * dx + dz * dz; }
-
-// ---------- Loop ----------
+// ---------- Update ----------
 let last = performance.now();
 function tick(now) {
-  const dt = Math.min((now - last) / 1000, 0.05);
-  last = now;
+  const dt = Math.min((now - last) / 1000, 0.05); last = now;
   legPhase += dt * 9;
+  if (player.pounceCd > 0) player.pounceCd -= dt;
+  if (player.pounceT > 0) player.pounceT -= dt;
+  danger = Math.max(0, danger - dt);
 
-  if (!won) movePlayer(dt);
-  recording.push({ x: player.pos.x, z: player.pos.z, yaw: player.yaw });
-  for (const e of echoes) if (e.i < e.frames.length - 1) e.i++;
-
-  updatePuzzle();
-  updateGuard(dt);
+  movePlayer(dt);
+  player.power = 1 + player.score * 0.2;
+  updatePrey(dt);
+  updateBeasts(dt);
+  updatePetals(dt);
   render();
   requestAnimationFrame(tick);
 }
 
+function clampToField(p) {
+  const m = 1.5;
+  p.x = Math.max(-ROOM.x + m, Math.min(ROOM.x - m, p.x));
+  p.z = Math.max(-ROOM.z + m, Math.min(ROOM.z - m, p.z));
+}
+
 function movePlayer(dt) {
-  // arrow turn
   if (keyDown['arrowleft']) player.yaw -= TURN * dt;
   if (keyDown['arrowright']) player.yaw += TURN * dt;
-
-  // forward (ground) + right vectors from yaw
   const fx = Math.sin(player.yaw), fz = -Math.cos(player.yaw);
   const rx = -fz, rz = fx;
-
   let mx = 0, mz = 0;
   if (keyDown['w'] || keyDown['arrowup']) { mx += fx; mz += fz; }
   if (keyDown['s'] || keyDown['arrowdown']) { mx -= fx; mz -= fz; }
   if (keyDown['d']) { mx += rx; mz += rz; }
   if (keyDown['a']) { mx -= rx; mz -= rz; }
-
-  if (mx || mz) {
-    const L = Math.hypot(mx, mz); mx /= L; mz /= L;
-  }
-  let nx = player.pos.x + mx * SPEED * dt;
-  let nz = player.pos.z + mz * SPEED * dt;
-  const m = 1.2;
-  nx = Math.max(-ROOM.x + m, Math.min(ROOM.x - m, nx));
-  nz = Math.max(-ROOM.z + m, Math.min(ROOM.z - m, nz));
-  if (crossesGate(nx, player.pos.z)) nx = player.pos.x;
-  if (crossesGate(player.pos.x, nz)) nz = player.pos.z;
-  if (crossesGate(nx, nz)) { nx = player.pos.x; nz = player.pos.z; }
-  player.pos.x = nx; player.pos.z = nz;
+  if (mx || mz) { const L = Math.hypot(mx, mz); mx /= L; mz /= L; }
+  let sp = SPEED;
+  if (player.pounceT > 0) { mx += fx; mz += fz; sp = POUNCE_SPEED; } // lunge forward
+  player.pos.x += mx * sp * dt;
+  player.pos.z += mz * sp * dt;
+  clampToField(player.pos);
 }
 
-function updatePuzzle() {
-  let on = onPlate(player.pos.x, player.pos.z);
-  for (const e of echoes) { const f = e.frames[e.i]; if (f && onPlate(f.x, f.z)) { on = true; break; } }
-  plate.active = on; gate.open = on;
-  plateMesh.material.color.setHex(on ? C.plateOn : C.plateOff);
-  plateMesh.material.emissive.setHex(on ? C.plateOn : C.plateOff);
-  plateMesh.material.emissiveIntensity = on ? 0.8 : 0.3;
-  gateMesh.visible = !on;
-
-  gemMesh.rotation.y += 0.03;
-  gemMesh.position.y = 1.3 + Math.sin(legPhase * 0.4) * 0.15;
-  if (!gem.taken && dist2(player.pos.x, player.pos.z, gem.x, gem.z) < (1.2 + gem.r) ** 2) {
-    gem.taken = true; player.carrying = true; gemMesh.visible = false; flashScreen('#ffcf3f');
+function wander(e, dt, speed) {
+  const u = e.userData;
+  u.retarget -= dt;
+  if (u.retarget <= 0 || (u.tx === 0 && u.tz === 0)) {
+    u.tx = (Math.random() * 2 - 1) * ROOM.x; u.tz = (Math.random() * 2 - 1) * ROOM.z;
+    u.retarget = 2 + Math.random() * 3;
   }
-  playerSpider.spark.visible = player.carrying;
+  const dx = u.tx - e.position.x, dz = u.tz - e.position.z, d = Math.hypot(dx, dz) || 1;
+  e.position.x += (dx / d) * speed * dt;
+  e.position.z += (dz / d) * speed * dt;
+  e.rotation.y = Math.atan2(dx, dz);
+}
 
-  if (player.carrying && !won && dist2(player.pos.x, player.pos.z, exit.x, exit.z) < exit.r ** 2) {
-    won = true;
-    banner('STOLEN.\nYou and your echo pulled it off.\n(Backspace to replay)');
-    flashScreen('#00ff9d');
+const catchReach = () => (player.pounceT > 0 ? 3.4 : 2.0);
+
+function poof(x, z, color) {
+  const n = 14, geo = new THREE.BufferGeometry(), arr = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) { arr[i * 3] = x; arr[i * 3 + 1] = 1.2; arr[i * 3 + 2] = z; }
+  geo.setAttribute('position', new THREE.BufferAttribute(arr, 3));
+  const pts = new THREE.Points(geo, new THREE.PointsMaterial({ color, size: 0.5, transparent: true, opacity: 1 }));
+  const vels = []; for (let i = 0; i < n; i++) vels.push([(Math.random() * 2 - 1) * 4, Math.random() * 5 + 2, (Math.random() * 2 - 1) * 4]);
+  scene.add(pts);
+  let life = 0.6;
+  const anim = () => {
+    const d = 0.016; life -= d;
+    const pos = geo.attributes.position.array;
+    for (let i = 0; i < n; i++) { pos[i * 3] += vels[i][0] * d; pos[i * 3 + 1] += vels[i][1] * d; pos[i * 3 + 2] += vels[i][2] * d; vels[i][1] -= 9 * d; }
+    geo.attributes.position.needsUpdate = true;
+    pts.material.opacity = Math.max(0, life / 0.6);
+    if (life > 0) requestAnimationFrame(anim); else scene.remove(pts);
+  };
+  anim();
+}
+
+function updatePrey(dt) {
+  for (const p of prey) {
+    const dx = player.pos.x - p.position.x, dz = player.pos.z - p.position.z;
+    const d = Math.hypot(dx, dz);
+    if (d < 9) { // flee from the spider
+      p.position.x -= (dx / d) * 6 * dt; p.position.z -= (dz / d) * 6 * dt;
+      p.rotation.y = Math.atan2(-dx, -dz);
+    } else {
+      wander(p, dt, 2.5);
+    }
+    clampToField(p.position);
+    // little hop
+    p.position.y = Math.abs(Math.sin(legPhase * 1.5 + p.id)) * 0.12;
+    if (d < catchReach()) { // caught!
+      poof(p.position.x, p.position.z, 0xfff0a0);
+      player.score += 1; player.health = Math.min(100, player.health + 12);
+      const s = randSpot(10); p.position.set(s.x, 0, s.z);
+    }
   }
 }
 
-function updateGuard(dt) {
-  const tgt = guard.waypoints[guard.target];
-  const dir = new THREE.Vector3(tgt.x - guard.group.position.x, 0, tgt.z - guard.group.position.z);
-  const d = dir.length();
-  if (d < 0.3) { guard.target = (guard.target + 1) % guard.waypoints.length; }
-  else {
-    dir.normalize();
-    guard.group.position.x += dir.x * guard.speed * dt;
-    guard.group.position.z += dir.z * guard.speed * dt;
-    guard.heading = Math.atan2(dir.x, dir.z);
-    guard.group.rotation.y = guard.heading;
+function updateBeasts(dt) {
+  for (const b of beasts) {
+    const u = b.userData; u.hitCd -= dt;
+    const dx = player.pos.x - b.position.x, dz = player.pos.z - b.position.z;
+    const d = Math.hypot(dx, dz) || 1;
+    const outPowered = player.power >= u.power;
+    if (outPowered && d < 22) {
+      b.position.x -= (dx / d) * 7 * dt; b.position.z -= (dz / d) * 7 * dt;
+      b.rotation.y = Math.atan2(-dx, -dz);
+      if (d < catchReach() + 1) {
+        poof(b.position.x, b.position.z, 0xffd14d);
+        player.score += 4; player.health = Math.min(100, player.health + 25);
+        const s = randSpot(24); b.position.set(s.x, 0, s.z);
+      }
+    } else if (!outPowered && d < 16) {
+      b.position.x += (dx / d) * 6.5 * dt; b.position.z += (dz / d) * 6.5 * dt;
+      b.rotation.y = Math.atan2(dx, dz);
+      if (d < 3 && u.hitCd <= 0) {
+        u.hitCd = 1; player.health -= 18; danger = 1; flashScreen('#ff0033');
+        if (player.health <= 0) { player.health = 100; player.pos.copy(start); banner('DOWN!\nThe beast got you — back to the start.'); setTimeout(() => banner(''), 1400); }
+      }
+    } else {
+      wander(b, dt, 3);
+    }
+    clampToField(b.position);
+    b.position.y = Math.sin(legPhase * 1.2) * 0.1;
   }
+}
 
-  const toP = new THREE.Vector3(player.pos.x - guard.group.position.x, 0, player.pos.z - guard.group.position.z);
-  const dp = toP.length();
-  let spotted = false;
-  if (!won && dp < GUARD_RANGE) {
-    const fwd = new THREE.Vector3(Math.sin(guard.heading), 0, Math.cos(guard.heading));
-    const ang = Math.acos(THREE.MathUtils.clamp(toP.normalize().dot(fwd), -1, 1));
-    if (ang < GUARD_FOV) spotted = true;
+function updatePetals(dt) {
+  const p = window.__petals; if (!p) return;
+  const pos = p.geometry.attributes.position.array;
+  for (let i = 0; i < pos.length; i += 3) {
+    pos[i + 1] -= 2 * dt; pos[i] += Math.sin(legPhase + i) * 0.01;
+    if (pos[i + 1] < 0) pos[i + 1] = 30;
   }
-  guard.coneMat.opacity = spotted ? 0.4 : 0.16;
-  guard.coneMat.color.setHex(spotted ? 0xff0033 : C.cone);
-  if (spotted) {
-    caught++; flashScreen('#ff0033');
-    player.pos.copy(start); player.carrying = false;
-    gem.taken = false; gemMesh.visible = true; recording = [];
-  }
+  p.geometry.attributes.position.needsUpdate = true;
 }
 
 // ---------- Render ----------
-function placeSpider(spider, x, z, yaw) {
-  spider.position.set(x, 0, z);
-  spider.rotation.y = yaw;
-  // gentle leg sway so it feels alive
-  for (const lg of spider.legGroups) {
-    lg.pivot.rotation.z = Math.sin(legPhase + lg.phase) * 0.06;
-    lg.pivot.position.y = Math.sin(legPhase + lg.phase) * 0.05;
-  }
-  // body bob
-  spider.position.y = Math.sin(legPhase * 1.0) * 0.06;
+function placeSpider(sp) {
+  for (const lg of sp.legGroups) { lg.pivot.rotation.z = Math.sin(legPhase + lg.phase) * 0.06; lg.pivot.position.y = Math.sin(legPhase + lg.phase) * 0.05; }
+  sp.position.y = Math.sin(legPhase) * 0.06;
 }
-
 function render() {
-  placeSpider(playerSpider, player.pos.x, player.pos.z, player.yaw);
-  playerSpider.visible = !firstPerson || true; // keep visible; FP camera sits above head
-  for (const e of echoes) {
-    const f = e.frames[e.i];
-    if (f) { placeSpider(e.spider, f.x, f.z, f.yaw); e.spider.spark.visible = false; }
-  }
+  playerSpider.position.set(player.pos.x, 0, player.pos.z);
+  playerSpider.rotation.y = player.yaw;
+  placeSpider(playerSpider);
 
   const fx = Math.sin(player.yaw), fz = -Math.cos(player.yaw);
   if (firstPerson) {
-    // eyes of the spider: just above & slightly ahead of the head
-    const eyeH = 2.3;
-    camera.position.set(player.pos.x + fx * 0.5, eyeH, player.pos.z + fz * 0.5);
-    const look = new THREE.Vector3(
+    camera.position.set(player.pos.x + fx * 0.6, 2.3, player.pos.z + fz * 0.6);
+    camera.lookAt(
       camera.position.x + fx * Math.cos(player.pitch),
       camera.position.y + Math.sin(player.pitch),
       camera.position.z + fz * Math.cos(player.pitch)
     );
-    camera.lookAt(look);
   } else {
-    // pull back to admire the spider
-    camera.position.set(player.pos.x - fx * 9, 6, player.pos.z - fz * 9);
+    camera.position.set(player.pos.x - fx * 10, 7, player.pos.z - fz * 10);
     camera.lookAt(player.pos.x, 1.6, player.pos.z);
   }
-
   updateHud();
   renderer.render(scene, camera);
 }
@@ -454,17 +453,17 @@ function render() {
 // ---------- HUD ----------
 const hudEl = document.getElementById('hud');
 const bannerEl = document.getElementById('banner');
+function bar(v, max, w) { const n = Math.round((v / max) * w); return '█'.repeat(Math.max(0, n)) + '░'.repeat(Math.max(0, w - n)); }
 function updateHud() {
+  const strong = player.power >= 2.4;
   hudEl.textContent =
-    `ECHO 3D  ·  Room 1  ·  ${firstPerson ? 'first person' : 'look at yourself'}\n` +
-    `Run ${runCount}   Echoes ${echoes.length}/${MAX_ECHOES}   Caught ${caught}\n` +
-    `Click to look · WASD move · arrows turn · R rewind · V view`;
+    `SPIDER HUNT\n` +
+    `HP   ${bar(player.health, 100, 14)} ${Math.max(0, player.health | 0)}\n` +
+    `Prey hunted: ${player.score}    Power: ${player.power.toFixed(1)}${strong ? '  (you can hunt the beasts!)' : ''}\n` +
+    `${danger > 0 ? '⚠ A BEAST IS HUNTING YOU\n' : ''}` +
+    `Click to look · WASD move · SPACE pounce · V view`;
 }
 function banner(t) { bannerEl.textContent = t; bannerEl.style.opacity = t ? 1 : 0; }
-function flashScreen(color) {
-  const f = document.getElementById('flash');
-  f.style.background = color; f.style.opacity = 0.5;
-  setTimeout(() => { f.style.opacity = 0; }, 180);
-}
+function flashScreen(color) { const f = document.getElementById('flash'); f.style.background = color; f.style.opacity = 0.45; setTimeout(() => { f.style.opacity = 0; }, 180); }
 
 requestAnimationFrame(tick);
