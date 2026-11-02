@@ -304,8 +304,12 @@ addEventListener('mousemove', (e) => {
   if (document.pointerLockElement === canvas) {
     player.yaw += e.movementX * MOUSE_SENS;
     player.pitch = Math.max(-1.1, Math.min(1.1, player.pitch - e.movementY * MOUSE_SENS));
+    // forelegs lean toward wherever the mouse is moving (both sides follow the screen)
+    legAimX = Math.max(-0.75, Math.min(0.75, legAimX + e.movementX * 0.006));
+    legAimY = Math.max(-0.75, Math.min(0.75, legAimY + e.movementY * 0.006));
   }
 });
+let legAimX = 0, legAimY = 0;
 let firstPerson = true;
 function pounce() { if (player.pounceCd <= 0) { player.pounceT = 0.3; player.pounceCd = 0.85; } }
 function restartLevel() { caught = false; caughtT = 0; player.pos.copy(start); player.hp = HP_MAX; player.yaw = Math.PI; player.pitch = 0; banner(''); spawnLevel(); }
@@ -322,6 +326,7 @@ function tick(now) {
     requestAnimationFrame(tick); return;
   }
   legPhase += dt * 9;
+  legAimX *= 0.86; legAimY *= 0.86;   // forelegs ease back to rest when the mouse stops
   if (player.pounceCd > 0) player.pounceCd -= dt;
   if (player.pounceT > 0) player.pounceT -= dt;
   if (!won) movePlayer(dt);
@@ -455,8 +460,8 @@ function render() {
     for (let i = 0; i < fp.length; i++) {
       const pv = fp[i];
       pv.visible = true;
-      pv.rotation.y = (i === 0 ? -0.55 : 0.55);   // bring both forelegs toward center-front
-      pv.rotation.x = -player.pitch * 0.9;         // follow vertical look (up/down)
+      pv.rotation.y = (i === 0 ? -0.55 : 0.55) + legAimX;   // both lean toward mouse (left/right)
+      pv.rotation.x = -player.pitch * 0.9 + legAimY;         // follow look + mouse (up/down)
     }
   } else {
     for (const pv of playerSpider.frontPivots) { pv.rotation.y = 0; pv.rotation.x = 0; }
