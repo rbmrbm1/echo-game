@@ -472,15 +472,8 @@ function render() {
   const showFull = !firstPerson || caught;
   playerSpider.visible = true;
   for (const ch of playerSpider.children) ch.visible = showFull;
-  if (!showFull) {
-    // first person: show only the dedicated forelegs rig, and lean it toward the mouse
-    const rig = playerSpider.fpRig;
-    rig.visible = true;
-    rig.rotation.y = legAimX * 0.7;                       // follow mouse left/right
-    rig.rotation.x = -player.pitch * 0.45 + legAimY * 0.7; // follow look + mouse up/down
-  } else {
-    playerSpider.fpRig.rotation.set(0, 0, 0);
-  }
+  // first-person forelegs are hidden for now (clean view); re-enable later
+  playerSpider.fpRig.visible = false;
 
   const fx = Math.sin(player.yaw), fz = -Math.cos(player.yaw);
   if (caught) {
