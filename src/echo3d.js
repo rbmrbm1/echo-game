@@ -208,6 +208,24 @@ function makeSpider() {
   }
   // the front pair (i = 0) stays visible even in first person, like forelegs in view
   g.frontPivots = [g.legGroups[0].pivot, g.legGroups[1].pivot];
+
+  // --- dedicated first-person forelegs ---
+  // feet planted wide and ahead (so they sit at the bottom corners of the screen);
+  // the legs sweep up and out of frame, so you barely see the top.
+  const fpRig = new THREE.Group();
+  for (const side of [-1, 1]) {
+    const hip  = [side * 0.5, 1.6, -0.8];   // just under/behind the eyes
+    const knee = [side * 2.7, 2.0, -2.4];   // out to the side, near the screen edge
+    const foot = [side * 3.5, 0.0, -4.3];   // planted on the ground, ahead & wide
+    fpRig.add(makeLimb(hip[0], hip[1], hip[2], knee[0], knee[1], knee[2], 0.26, body));
+    fpRig.add(makeLimb(knee[0], knee[1], knee[2], foot[0], foot[1], foot[2], 0.2, body));
+    // a little clawed foot tip
+    const claw = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.5, 4), body);
+    claw.position.set(foot[0], foot[1] + 0.2, foot[2]); claw.rotation.x = Math.PI; fpRig.add(claw);
+  }
+  fpRig.visible = false;
+  g.add(fpRig); g.fpRig = fpRig;
+
   scene.add(g); return g;
 }
 
@@ -455,16 +473,13 @@ function render() {
   playerSpider.visible = true;
   for (const ch of playerSpider.children) ch.visible = showFull;
   if (!showFull) {
-    // forelegs lead the view: sweep forward into frame and tilt with where you look
-    const fp = playerSpider.frontPivots;
-    for (let i = 0; i < fp.length; i++) {
-      const pv = fp[i];
-      pv.visible = true;
-      pv.rotation.y = (i === 0 ? -0.55 : 0.55) + legAimX;   // both lean toward mouse (left/right)
-      pv.rotation.x = -player.pitch * 0.9 + legAimY;         // follow look + mouse (up/down)
-    }
+    // first person: show only the dedicated forelegs rig, and lean it toward the mouse
+    const rig = playerSpider.fpRig;
+    rig.visible = true;
+    rig.rotation.y = legAimX * 0.7;                       // follow mouse left/right
+    rig.rotation.x = -player.pitch * 0.45 + legAimY * 0.7; // follow look + mouse up/down
   } else {
-    for (const pv of playerSpider.frontPivots) { pv.rotation.y = 0; pv.rotation.x = 0; }
+    playerSpider.fpRig.rotation.set(0, 0, 0);
   }
 
   const fx = Math.sin(player.yaw), fz = -Math.cos(player.yaw);
